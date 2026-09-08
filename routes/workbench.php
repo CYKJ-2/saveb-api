@@ -1,0 +1,67 @@
+<?php
+
+use App\Controllers\AttachmentController;
+use App\Controllers\InfluencerController;
+use App\Controllers\InvoiceController;
+use App\Controllers\InvoiceOcrController;
+use App\Controllers\OperationsController;
+use App\Controllers\PaypalController;
+use App\Controllers\ProcurementController;
+use App\Controllers\LogisticsController;
+use App\Controllers\SaSalesController;
+use App\Controllers\WarehouseController;
+use Illuminate\Support\Facades\Route;
+
+Route::prefix('workbench')->middleware('auth.api')->group(function () {
+    Route::get('procurement/logistics/status', [LogisticsController::class, 'status'])->middleware('permission:business.procurement.list');
+    Route::post('procurement/logistics/refresh', [LogisticsController::class, 'refresh'])->middleware('permission:business.procurement.list,business.procurement.logistics');
+    Route::get('invoices/logs/export', [InvoiceController::class,'exportLogs'])->middleware('permission:business.invoice.logs,business.invoice.export');
+    Route::get('sa-sales/export', [SaSalesController::class,'export'])->middleware('permission:business.sa_sales.list,business.sa_sales.export');
+    Route::get('procurement/export', [ProcurementController::class,'export'])->middleware('permission:business.procurement.list,business.procurement.export');
+    Route::get('procurement/logs/export', [ProcurementController::class,'exportLogs'])->middleware('permission:business.procurement.logs,business.procurement.export');
+    Route::get('influencers/export', [InfluencerController::class,'export'])->middleware('permission:business.influencer.list,business.influencer.export');
+    Route::get('paypal/export', [PaypalController::class,'export'])->middleware('permission:business.paypal.list,business.paypal.export');
+    Route::get('invoices', [InvoiceController::class,'index'])->middleware('permission:business.invoice.list');
+    Route::get('invoices/next-number', [InvoiceController::class,'nextNumber'])->middleware('permission:business.invoice.create');
+    Route::get('invoices/form-options', [InvoiceController::class,'formOptions'])->middleware('permission:business.invoice.create|business.invoice.update');
+    Route::post('invoices/parse-text', [InvoiceController::class,'parseText'])->middleware('permission:business.invoice.create|business.invoice.update');
+    Route::get('invoices/logs', [InvoiceController::class,'logs'])->middleware('permission:business.invoice.logs');
+    Route::get('invoices/{id}', [InvoiceController::class,'show'])->whereNumber('id')->middleware('permission:business.invoice.list');
+    Route::post('invoices', [InvoiceController::class,'save'])->middleware('permission:business.invoice.create');
+    Route::put('invoices/{id}', [InvoiceController::class,'save'])->whereNumber('id')->middleware('permission:business.invoice.update');
+    Route::delete('invoices/{id}', [InvoiceController::class,'destroy'])->whereNumber('id')->middleware('permission:business.invoice.delete');
+    Route::post('invoice-ocr', [InvoiceOcrController::class,'recognize'])->middleware('permission:business.invoice.ocr');
+    Route::post('attachments', [AttachmentController::class,'upload'])->middleware('permission:business.invoice.create|business.invoice.update|business.invoice.ocr');
+    Route::get('attachments/{id}', [AttachmentController::class,'show'])->whereNumber('id')->middleware('permission:business.invoice.list|business.invoice.create|business.invoice.update|business.invoice.ocr');
+    Route::get('sa-sales/bounds', [SaSalesController::class,'bounds'])->middleware('permission:business.sa_sales.list');
+    Route::get('sa-sales/report', [SaSalesController::class,'report'])->middleware('permission:business.sa_sales.list');
+    Route::get('sa-sales/orders', [SaSalesController::class,'orders'])->middleware('permission:business.sa_sales.list');
+    Route::get('sa-sales/order-options', [SaSalesController::class,'orderOptions'])->middleware('permission:business.sa_sales.list');
+    Route::get('procurement', [ProcurementController::class,'index'])->middleware('permission:business.procurement.list');
+    Route::get('procurement/statistics', [ProcurementController::class,'statistics'])->middleware('permission:business.procurement.statistics');
+    Route::get('procurement/logs', [ProcurementController::class,'logs'])->middleware('permission:business.procurement.logs');
+    Route::post('procurement', [ProcurementController::class,'save'])->middleware('permission:business.procurement.create');
+    Route::put('procurement/{id}', [ProcurementController::class,'save'])->whereNumber('id')->middleware('permission:business.procurement.update');
+    Route::delete('procurement/{id}', [ProcurementController::class,'destroy'])->whereNumber('id')->middleware('permission:business.procurement.delete');
+    Route::delete('procurement/source', [ProcurementController::class,'destroySource'])->middleware('permission:business.procurement.delete');
+    Route::get('warehouse', [WarehouseController::class,'index'])->middleware('permission:business.warehouse.list');
+    Route::post('warehouse/{id}/actions', [WarehouseController::class,'action'])->whereNumber('id')->middleware('permission:business.warehouse.update');
+    Route::get('influencers/directory', [InfluencerController::class,'directory'])->middleware('permission:business.influencer.list');
+    Route::get('influencers/options', [InfluencerController::class,'options'])->middleware('permission:business.influencer.create');
+    Route::get('influencers/sales', [InfluencerController::class,'sales'])->middleware('permission:business.influencer.statistics');
+    Route::get('influencers/report', [InfluencerController::class,'report'])->middleware('permission:business.influencer.statistics');
+    Route::post('influencers/domains', [InfluencerController::class,'save'])->middleware('permission:business.influencer.create');
+    Route::get('paypal', [PaypalController::class,'index'])->middleware('permission:business.paypal.list');
+    Route::get('paypal/orders', [PaypalController::class,'orders'])->middleware('permission:business.paypal.orders');
+    Route::get('paypal/orders/export', [PaypalController::class,'exportOrders'])->middleware('permission:business.paypal.orders,business.paypal.orders_export');
+    Route::get('paypal/withdrawals', [PaypalController::class,'withdrawals'])->middleware('permission:business.paypal.withdrawals');
+    Route::get('paypal/withdrawals/export', [PaypalController::class,'exportWithdrawals'])->middleware('permission:business.paypal.withdrawals,business.paypal.export');
+    Route::get('paypal/statistics', [PaypalController::class,'statistics'])->middleware('permission:business.paypal.statistics');
+    Route::get('paypal/logs/export', [PaypalController::class,'exportLogs'])->middleware('permission:business.paypal.logs');
+    Route::post('paypal', [PaypalController::class,'create'])->middleware('permission:business.paypal.create');
+    foreach (['balance','review','withdrawal'] as $action) {
+        Route::post('paypal/{id}/' . $action, [PaypalController::class,'update'])->whereNumber('id')->defaults('action', $action)->middleware('permission:business.paypal.' . $action);
+    }
+    Route::get('operations',[OperationsController::class,'index'])->middleware('permission:business.operations.list');
+    Route::get('operations/directory', [OperationsController::class,'directory'])->middleware('permission:business.operations.list');
+});

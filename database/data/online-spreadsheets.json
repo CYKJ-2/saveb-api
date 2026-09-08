@@ -1,0 +1,52 @@
+[
+  {
+    "id": "customer-service-integrated-order-flow",
+    "department": "customer-service",
+    "provider": "WPS",
+    "titleZh": "产品采购&建单&品控&换货&发货集成表",
+    "titleEn": "Product Purchasing, Order Creation, QC, Exchange & Shipping",
+    "descriptionZh": "覆盖采购、建单、品控、换货与发货的协同流程。",
+    "descriptionEn": "Coordinates purchasing, order creation, quality control, exchanges, and shipping.",
+    "url": "https://www.kdocs.cn/l/cjdRBOAyO9dj"
+  },
+  {
+    "id": "customer-service-handover-inquiry-tracking",
+    "department": "customer-service",
+    "provider": "WPS",
+    "titleZh": "客服部交接询单跟进表",
+    "titleEn": "Customer Service Handover and Inquiry Tracking",
+    "descriptionZh": "用于客服交接、询单记录和后续进度跟进。",
+    "descriptionEn": "Tracks customer-service handovers, inquiries, and follow-up progress.",
+    "url": "https://www.kdocs.cn/l/cprrjVmunh4r"
+  },
+  {
+    "id": "customer-service-script-library-20250514",
+    "department": "customer-service",
+    "provider": "WPS",
+    "titleZh": "话术库20250514",
+    "titleEn": "Customer Service Script Library 20250514",
+    "descriptionZh": "客服常用沟通话术与回复模板。",
+    "descriptionEn": "Reusable customer-service scripts and response templates.",
+    "url": "https://www.kdocs.cn/l/cey31GGpK8Df"
+  },
+  {
+    "id": "customer-service-quotation-reference-20260609",
+    "department": "customer-service",
+    "provider": "WPS",
+    "titleZh": "报价参考表20260609",
+    "titleEn": "Quotation Reference 20260609",
+    "descriptionZh": "用于产品报价查询与价格核对。",
+    "descriptionEn": "Provides product quotation references and price checks.",
+    "url": "https://www.kdocs.cn/l/cmwSUonV3HDM"
+  },
+  {
+    "id": "customer-service-refund-tracking",
+    "department": "customer-service",
+    "provider": "WPS",
+    "titleZh": "售中售后退款表",
+    "titleEn": "In-Sale and After-Sale Refund Tracking",
+    "descriptionZh": "记录售中、售后及退款事项的处理进度。",
+    "descriptionEn": "Tracks in-sale, after-sale, and refund handling progress.",
+    "url": "https://www.kdocs.cn/l/cbyao3niVJil"
+  }
+]

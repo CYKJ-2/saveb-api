@@ -1,0 +1,71 @@
+# ── Git / CI ──────────────────────────────────────────
+.git
+.github
+.gitignore
+.gitattributes
+
+# ── IDE / 编辑器 ────────────────────────────────────
+.idea
+.vscode
+.cursor
+*.swp
+
+# ── Laravel 运行时不需要进镜像的内容 ──────────────────────
+# 容器运行时只读应用代码，宿主机 env / log 不要进
+.env
+.env.*
+!.env.example
+storage/logs/*
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/framework/testing/*
+storage/app/public/*
+!storage/logs/.gitkeep
+
+# Laravel bootstrap cache（仅排除缓存文件，保留 .gitignore）
+bootstrap/cache/packages.php
+bootstrap/cache/services.php
+database/factories/*.local.php
+database/seeders/*.local.php
+tests/coverage
+.phpunit.cache
+.phpunit.result.cache
+
+# 前端构建产物（如果有 vite，在镜像外 build 完再 COPY）
+node_modules
+public/build
+public/hot
+.npmrc
+
+# ── Docker / compose / 自身 ────────────────────────────
+docker-compose*.yml
+build/docker
+build/env
+build/README.md
+
+# README / docs（可选：想塞进镜像的话删这一段）
+README.md
+*.md
+!build/Dockerfile
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Composer
+composer.phar
+
+# Local import data and secrets must not enter COPY . .
+.erp-sync
+backups
+vendor
+*.tmp
+*.bak
+*.log
+*.dump
+*.sql.gz
+*.tar.gz
+*.pem
+*.key
+storage/app/*
