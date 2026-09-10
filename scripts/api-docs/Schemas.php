@@ -227,5 +227,25 @@ function schemas(): array
     $s['ValidationError'] = shape('message:s:校验失败摘要;errors:#[]s:字段名到错误消息数组，支持 items.0.price 等嵌套字段');
     $s['HttpError'] = shape('message:s:HTTP 异常信息', ['additionalProperties' => true]);
 
+    $s['AnalysisImportSummary'] = shape('sheets:[]AnalysisSheet:各工作表采集量;rows:i:采购记录或供应商关系数;price_missing_or_invalid:i:价格缺失或无效行数;amount_unavailable:i:无法计算金额行数;category_matched:i:采集时品类匹配行数;brand_matched:i:采集时品牌匹配行数;orders_matched:i:采集时订单匹配行数;cancelled:i:取消采购行数');
+    $s['AnalysisSheet'] = shape('name:s:工作表名称;rows:i:有效来源行或规则关系数量');
+    $s['AnalysisImport'] = shape('id:i:版本主键;source_type:s:suppliers 或 procurement;source_url:s:只读在线来源地址;filename:s:文件显示名称;file_hash:s:SHA256 文件摘要;signature:s:文件与口径组合摘要;is_active:b:当前版本;currency:?s:确认币种;price_basis:s:row_total 或 unit 或 unknown;summary:AnalysisImportSummary:导入时质量快照;created_by:?i:采集用户，CLI 时可空;created_at:time:ISO 创建时间;updated_at:time:ISO 更新时间');
+    $s['AnalysisImportPage'] = shape('list:[]AnalysisImport:当前页版本;total:i:版本总数;page:i:当前页;per_page:i:每页数量;last_page:i:最后页');
+    $s['AnalysisImported'] = shape('id:i:当前生效版本 ID;reused:b:是否复用已有文件及口径;summary:AnalysisImportSummary:导入质量快照');
+    $s['AnalysisCategory'] = shape('id:i:品类主键;code:s:品类代码;name_zh:s:中文名称;name_en:s:英文名称');
+    $s['AnalysisBrand'] = shape('id:i:品牌主键;name_zh:s:中文名称;name_en:s:英文名称');
+    $s['AnalysisColumn'] = shape('key:s:显示字段;label:s:当前语言列名称');
+    $s['AnalysisOptions'] = shape('categories:[]AnalysisCategory:品类字典;brands:[]AnalysisBrand:当前数据使用的品牌;currencies:[]s:当前币种;countries:[]s:已知国家; sheets:[]s:当前工作表;imports:[]AnalysisImport:当前来源版本;columns:[]AnalysisColumn:列表与导出共用的列顺序和名称');
+    $s['AnalysisSummary'] = shape('rows:i:采购行数，不是订单数;amount_rows:i:可计算金额行数;category_rows:i:已匹配品类行数;brand_rows:i:已匹配品牌行数;linked_rows:i:可靠关联订单行数;country_rows:i:已知国家行数;customer_rows:i:已知顾客类型行数;fallback_date_rows:i:非顾客下单日期或无日期行数;cancelled_rows:i:取消采购行数;linked_orders:i:关联的不同订单数;first_date:?date:最早统计日期;last_date:?date:最新统计日期');
+    $s['AnalysisTotal'] = shape('currency:?s:币种，未确认时 null;rows:i:记录数;amount_rows:i:有效金额记录数;amount:?s:两位小数金额，无有效金额时 null');
+    $s['AnalysisPoint'] = ['allOf' => [ref('AnalysisTotal'), shape('period:s:YYYY-MM-DD 或 YYYY-MM')]];
+    $s['AnalysisDistribution'] = ['allOf' => [ref('AnalysisTotal'), shape('key:s:分组名称或 unknown')]];
+    $s['AnalysisTrend'] = shape('grain:s:day 或 month;periods:[]s:完整筛选日期轴;currencies:[]?s:币种列表;points:[]AnalysisPoint:实际有记录的日期汇总，空档未伪造为零');
+    $s['AnalysisReport'] = shape('summary:AnalysisSummary:质量及记录摘要;totals:[]AnalysisTotal:分币种金额;trend:AnalysisTrend:逐日逐月趋势;distributions:AnalysisDistributions:维度分布;metric_basis:s:procurement_actual_transaction_price');
+    $s['AnalysisDistributions'] = shape('brand:[]AnalysisDistribution:品牌;category:[]AnalysisDistribution:品类;supplier:[]AnalysisDistribution:供应商;price_band:[]AnalysisDistribution:原表价格区间;country:[]AnalysisDistribution:国家;customer_type:[]AnalysisDistribution:已知历史顾客类型');
+    $s['AnalysisRow'] = shape('id:i:采购行主键;sheet_name:s:工作表;row_number:i:来源行号;analysis_date:?date:统计日期;date_basis:s:日期来源;customer_order_date:?date:顾客下单日期;procurement_date:?date:采购日期;order_reference:?s:原表订单文本;product_description:?s:货号描述;supplier_raw:?s:供应商原文;customer_name:?s:客户原文;brand_raw:?s:品牌原文;actual_price:?s:原价两位小数;price_raw:?s:未改写原价文本;price_column:?s:来源价格列名;quantity:?s:数量四位小数;analysis_amount:?s:按确认口径计算金额;price_basis:s:价格口径;price_status:s:valid 或 missing 或 invalid 或 currency_conflict;currency:?s:币种;purchase_status:?s:原表采购状态;is_cancelled:b:取消标记;record_type:s:采购类型;classification_status:s:品类匹配状态;order_match_status:s:订单匹配状态;linked_order_type:?s:ordinary 或 invoice;linked_order_id:?i:匹配订单 ID;country:?s:国家;customer_type:s:unknown 或 first 或 returning;issues:s:原始 JSON 待核对项;category_code:?s:品类 code;category_zh:?s:中文品类;category_en:?s:英文品类;brand_zh:?s:中文品牌;brand_en:?s:英文品牌;brand:?s:显示品牌;category:?s:显示品类;display:obj:按 columns 顺序提供当前语言显示值，列表和导出共用');
+    $s['AnalysisRowPage'] = shape('list:[]AnalysisRow:当前页;total:i:总条数;page:i:当前页;per_page:i:每页默认20;last_page:i:最后页');
+    $s['AnalysisEvidence'] = shape('raw:obj:原始行号、单元格及公式文本和缓存;classification_evidence:obj:供应商及品牌候选和匹配依据;issues:[]s:待核对项;filename:s:文件名;source_url:s:只读来源;sheet_name:s:工作表;row_number:i:来源行号');
+
     return $s;
 }

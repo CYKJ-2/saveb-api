@@ -17,9 +17,18 @@ function contract(string $controller, string $method, string $verb, array $defau
         'Attachment' => 'Invoice 识别与附件', 'SaSales' => 'SA 销售统计', 'Procurement' => '采购工作台',
         'Warehouse' => '仓库工作台', 'Influencer' => '达人工作台', 'Paypal' => 'PayPal 余额监控',
         'Operations' => '工作巡查', 'Collector' => '数据采集', 'CollectorManagement' => '数据采集',
-        'Logistics' => '采购物流',
+        'Logistics' => '采购物流', 'Analysis' => 'Analysis 采购成交价格分析',
     ];
     $maps = [
+        'Analysis' => [
+            'options' => ['分析筛选项与双语列定义', 'AnalysisOptions'],
+            'report' => ['成交价格汇总、逐日逐月趋势及六维分布', 'AnalysisReport'],
+            'index' => ['分析明细分页（默认 20 条）', 'AnalysisRowPage'],
+            'evidence' => ['采购原始行与分类依据', 'AnalysisEvidence'],
+            'imports' => ['采集版本历史分页', 'AnalysisImportPage'],
+            'import' => ['采集 XLSX 完整副本的全部工作表', 'AnalysisImported'],
+            'export' => ['按当前语言导出全部分析明细', 'csv'],
+        ],
         'Auth' => ['login' => ['账号密码登录', 'Login'], 'me' => ['当前用户与权限树', 'Me'], 'logout' => ['退出并撤销当前令牌', 'Message']],
         'User' => ['index' => ['分页查询用户', '[]User'], 'all' => ['用户下拉选项（全量）', '[]User'], 'count' => ['用户数量', shape('total:i:用户数;active_only:b:是否仅启用用户')], 'show' => ['用户详情', 'User'], 'store' => ['创建用户', 'User'], 'update' => ['修改用户', 'User'], 'destroy' => ['删除用户', 'Deleted'], 'permissions' => ['用户有效权限（平铺）', '[]PermissionBrief'], 'changePassword' => ['修改用户密码', 'Message']],
         'Role' => ['index' => ['分页查询角色', 'RolePage'], 'all' => ['角色下拉选项（全量）', '[]Role'], 'show' => ['角色详情', 'Role'], 'store' => ['创建角色', 'Role'], 'update' => ['修改角色', 'Role'], 'destroy' => ['删除角色', 'Deleted'], 'assignments' => ['角色已授权权限 ID', shape('permissions:[]i:精确保存的权限 ID 列表')], 'assignPermissions' => ['同步角色权限', 'Role']],
@@ -58,6 +67,17 @@ function contract(string $controller, string $method, string $verb, array $defau
     }
     [$title, $response] = $entry;
     $result = ['title' => $title, 'group' => $groups[$controller], 'response' => $response, 'notes' => [], 'rules' => [], 'extra' => []];
+    if ($controller === 'Analysis') {
+        $result['resolvedDynamic'] = true;
+        if ($method !== 'import' && $method !== 'evidence') {
+            $result['rules']['endDate'] = 'nullable|date_format:Y-m-d';
+        }
+        $result['notes'][] = '采集采购表实际成交价格，不等于客户付款额或净销售额。币种分开汇总，金额为两位小数字符串；缺少币种、口径或数量时金额为 null，不按零处理。日期优先顾客下单日期，缺失时采用采购/原表日期并保留依据。取消采购默认排除。';
+        $result['notes'][] = '未传日期表示全部已导入历史；传 startDate 时 endDate 不得早于它。供应商、品牌、商品描述的唯一一致候选才自动分类；无法可靠关联订单时国家及顾客类型保留未知。首购仅表示系统已知历史中的首次。';
+        if ($method === 'import') {
+            $result['notes'][] = 'multipart/form-data 上传 file，扩展名 xlsx，最大 64 MiB。按全部 sheet 建立快照，成功后原子切换版本；同一文件与口径重复上传不重复累计；在线文档不回写。price_basis=row_total 每行合计，unit 单件价乘有效数量，unknown 不汇总金额。';
+        }
+    }
     if ($controller === 'Auth') {
         $result['notes'][] = '登录无需令牌；其余请求使用 Authorization: Bearer <token>。不是 JWT，也不是 Laravel session 登录。';
         if ($method !== 'logout') {
@@ -242,7 +262,13 @@ function descriptions(): array
         'items.*.notes' => '商品备注', 'items.*.image_attachment_id' => '商品图片附件 ID，可空',
         'allocations' => '完整客服分摊列表，percent 合计 100%', 'allocations.*.staff_code' => '分摊客服代码，不可重复',
         'allocations.*.percent' => '销售分成百分比', 'allocations.*.commission_percent' => '提成百分比，省略时 0',
-        'text' => '粘贴的 Invoice 原始文本', 'attachmentId' => '已上传图片附件 ID', 'file' => '图片文件，最大 25 MiB',
+        'text' => '粘贴的 Invoice 原始文本', 'attachmentId' => '已上传图片附件 ID', 'file' => '上传文件；类型和大小限制以本接口校验规则为准（图片或 Analysis XLSX）',
+        'category_id' => 'Analysis 品类字典主键', 'brand_id' => 'Analysis 品牌字典主键', 'supplier_id' => 'Analysis 供应商主键',
+        'customer_type' => 'unknown 未知、first 已知历史首次、returning 复购', 'classification_status' => '商品品类匹配状态',
+        'record_type' => 'ordinary 普通订单采购、invoice、after_sale 售后、other_procurement 达人或样品等',
+        'sheet_name' => '来源工作表名称', 'quality' => 'needs_review 缺少品类、金额或订单关联', 'include_cancelled' => '是否包含取消采购，默认 false',
+        'grain' => 'Analysis 趋势粒度 day 或 month，默认 month', 'source_type' => 'suppliers 供应商优选表，procurement 采购集成表',
+        'price_basis' => 'row_total 每行商品合计、unit 单件价格、unknown 待确认',
         'includeDetails' => '兼容参数；当前 SA report 固定为 false，明细请独立查询',
         'sourceKey' => '来源订单标识，如 order:123 或 invoice:invoice:123，使用列表返回值原样提交',
         'products' => '采购商品列表；来源商品及已交仓商品受业务保护', 'products.*.name' => '采购商品名称',

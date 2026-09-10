@@ -58,6 +58,7 @@ class RbacSeeder extends Seeder
             $this->seedBusinessPages($businessId);
             $this->seedSystemPages($systemId);
             $this->call(InspectionMenuSeeder::class);
+            $this->call(AnalysisMenuSeeder::class);
 
             // 旧版订单入口已合并到订单管理；保留记录和授权关联以便追溯。
             DB::table('permissions')->whereIn('code', ['orders', 'orders.list', 'dashboard.view'])->update([

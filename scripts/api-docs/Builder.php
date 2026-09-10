@@ -45,7 +45,7 @@ final class Builder
             'openapi' => '3.1.0',
             'info' => [
                 'title' => 'SAVEB API 接口说明', 'version' => date('Y-m-d'),
-                'description' => '根据当前 Laravel 路由、参数校验及业务返回结构整理。全部示例均为虚构，不包含真实用户、令牌或业务数据。仅说明实际已注册接口；Analysis 规划接口尚未实现，因此未列入。',
+                'description' => '根据当前 Laravel 路由、参数校验及业务返回结构整理。全部示例均为虚构，不包含真实用户、令牌或业务数据。仅说明实际已注册接口，包含从本地 XLSX 副本采集的 Analysis 采购成交价格分析。',
             ],
             'servers' => [['url' => 'http://localhost:8080', 'description' => '本地 Docker Nginx'], ['url' => '/', 'description' => '文档所在服务（同源）']],
             'tags' => array_map(fn ($name) => ['name' => $name], array_keys($tags)),
@@ -430,6 +430,11 @@ final class Builder
 
     private function csvColumns(string $class, string $method): array
     {
+        if ($class === 'App\\Controllers\\AnalysisController' && $method === 'export') {
+            $columns = \App\Services\AnalysisService::COLUMNS;
+
+            return array_map(static fn (string $key, array $names): array => ['field' => $key, 'zh' => $names[0], 'en' => $names[1]], array_keys($columns), array_values($columns));
+        }
         $finder = new \PhpParser\NodeFinder();
         $node = $this->inspector->method($class, $method);
         foreach ($finder->findInstanceOf($node->stmts, \PhpParser\Node\Expr\StaticCall::class) as $call) {
