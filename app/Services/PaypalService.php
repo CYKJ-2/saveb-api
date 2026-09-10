@@ -13,7 +13,12 @@ use Illuminate\Support\Facades\DB;
  */
 class PaypalService
 {
-    /** 列表分页；汇总始终覆盖完整筛选范围，与当前页无关。 */
+    /**
+     * 列表分页；汇总始终覆盖完整筛选范围，与当前页无关。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 keyword、sort、threshold
+     * @return array 当前页记录及分页信息；汇总字段按业务方法计算
+     */
     public function page(array $filters): array
     {
         $rows = $this->listing(trim($filters['keyword'] ?? ''));
@@ -35,13 +40,23 @@ class PaypalService
         ];
     }
 
-    /** 收款明细分页，下载仍使用完整的 orders 结果。 */
+    /**
+     * 收款明细分页，下载仍使用完整的 orders 结果。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 email
+     * @return array 当前页记录及分页信息；汇总字段按业务方法计算
+     */
     public function orderPage(array $filters): array
     {
         return \App\Common\PageResult::fromRows($this->orders($filters['email']), $filters);
     }
 
-    /** 提款总额先统计再分页，导入累计记录保留原有口径。 */
+    /**
+     * 提款总额先统计再分页，导入累计记录保留原有口径。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件
+     * @return array 当前页记录及分页信息；汇总字段按业务方法计算
+     */
     public function withdrawalPage(array $filters): array
     {
         $result = $this->withdrawals($filters);
@@ -52,6 +67,15 @@ class PaypalService
         ];
     }
 
+    /**
+     * 注入 PayPal 账户处理所需的依赖。
+     *
+     * @param  PaypalDao  $paypalDao  PayPal 账户数据访问对象
+     * @param  PaypalActivityService  $paypalActivityService  PayPal 收款业务服务
+     * @param  BusinessOperationLogDao  $businessOperationLogDao  业务操作日志数据访问对象
+     * @param  PaypalLegacyService  $paypalLegacyService  PayPal 历史资料业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(
         private PaypalDao $paypalDao,
         private PaypalActivityService $paypalActivityService,
@@ -62,6 +86,9 @@ class PaypalService
 
     /**
      * 计算账户收支。
+     *
+     * @return array 按账户邮箱分组的美元收款合计及订单明细
+     * @see PaypalActivityService::groups()
      */
     public function activity(): array
     {
@@ -70,15 +97,18 @@ class PaypalService
 
     /**
      * 查询账户列表，按当前余额从高到低排序。
+     *
+     * @param  string  $keyword  列表关键字；空字符串表示不按关键字过滤；默认 ''
+     * @return array 按余额降序排列的账户记录，包含收款、提款及余额基线计算结果
+     * @see PaypalDao::all()
      */
     public function listing(string $keyword = ''): array
     {
-        $activity = $this->activity();
+        $accounts = $this->paypalDao->all()->filter(fn ($account) => $keyword === '' || mb_stripos($account->email . ' ' . $account->account_name, $keyword) !== false);
+        // 搜索一个账户时，仅计算该账户收款；全局日快照分界仍由 Dao 独立获取。
+        $activity = $keyword === '' ? $this->activity() : $this->paypalActivityService->groups($accounts->pluck('email')->all());
         $rows = [];
-        foreach ($this->paypalDao->all() as $account) {
-            if ($keyword !== '' && mb_stripos($account->email . ' ' . $account->account_name, $keyword) === false) {
-                continue;
-            }
+        foreach ($accounts as $account) {
             $rows[] = $this->presentAccount($account, $activity);
         }
         usort($rows, fn ($firstRow, $secondRow) => $secondRow['balance'] <=> $firstRow['balance']);
@@ -88,14 +118,26 @@ class PaypalService
 
     /**
      * 查询关联订单。
+     *
+     * @param  string  $email  PayPal 收款账户邮箱
+     * @return array 指定收款邮箱的全部关联订单明细
      */
     public function orders(string $email): array
     {
-        return $this->activity()[strtolower($email)]['orders'] ?? [];
+        return $this->paypalActivityService->groups([$email])[strtolower($email)]['orders'] ?? [];
     }
 
     /**
      * 提款记录与筛选合计，不重复叠加已经迁入流水表的历史导入金额。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 keyword、startDate、endDate
+     * @param  bool  $forChart  是否按图表口径过滤提款记录；默认 false
+     * @return array PayPal 账户结果数组；返回字段：rows、count、amount
+     * @see PaypalLegacyService::catalog()
+     * @see PaypalDao::withdrawals()
+     * @see PaypalDao::all()
+     * @see PaypalLegacyService::entries()
+     * @see PaypalLegacyService::account()
      */
     public function withdrawals(array $filters, bool $forChart = false): array
     {
@@ -137,6 +179,9 @@ class PaypalService
 
     /**
      * 按实际提款业务日期聚合日/月趋势，与列表筛选相互独立。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 mode
+     * @return array 按 period 排序的日或月提款金额列表，amount 保留两位小数
      */
     public function withdrawalStatistics(array $filters): array
     {
@@ -158,49 +203,15 @@ class PaypalService
     }
 
     /**
-     * 导出修改日志；旧日志没有记录的财务快照保持为空，不推算历史值。
-     */
-    public function changeLogs(): iterable
-    {
-        foreach ($this->businessOperationLogDao->all('paypal') as $log) {
-            $before = $log->before ?? [];
-            $after = $log->after ?? [];
-            $field = $log->action === 'review' ? 'reviews' : 'balance';
-            $previous = $before[$field] ?? null;
-            $current = $after[$field] ?? ($log->action === 'review' ? ($after['value'] ?? null) : null);
-            yield [
-                'time' => $log->created_at?->toIso8601String(),
-                'field' => $field,
-                'action' => $log->action,
-                'accountName' => $after['accountName'] ?? $before['account_name'] ?? $after['account_name'] ?? $before['accountName'] ?? '',
-                'email' => $after['email'] ?? $before['email'] ?? '',
-                'previous' => $previous,
-                'current' => $current,
-                'delta' => $previous !== null && $current !== null ? round($current - $previous, 2) : null,
-                'actor' => $log->actor_user_id,
-            ];
-        }
-        if ($this->paypalLegacyService->catalog()) {
-            $logs = $this->paypalLegacyService->state()['changeLogs'] ?? [];
-            usort($logs, fn ($left, $right) => strcmp($right['createdAt'] ?? '', $left['createdAt'] ?? ''));
-            foreach ($logs as $log) {
-                yield [
-                    'time' => $log['createdAt'] ?? '',
-                    'field' => $log['field'] ?? '',
-                    'action' => $log['action'] ?? '',
-                    'accountName' => $log['accountName'] ?? '',
-                    'email' => $log['email'] ?? '',
-                    'previous' => $log['previousValue'] ?? null,
-                    'current' => $log['newValue'] ?? null,
-                    'delta' => $log['delta'] ?? null,
-                    'actor' => $log['updatedBy'] ?? '',
-                ];
-            }
-        }
-    }
-
-    /**
-     * 创建记录。
+     * 创建 PayPal 账户记录。
+     *
+     * @param  array  $data  经过 Controller 校验的业务字段；本方法读取 email、accountName、addedDate、balance、reviews
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @return array PayPal 账户结果数组，包含 id 等字段
+     * @see PaypalDao::create()
+     * @see PaypalDao::balance()
+     * @see PaypalDao::review()
+     * @see BusinessOperationLogDao::record()
      */
     public function create(array $data, int $actor): array
     {
@@ -228,7 +239,20 @@ class PaypalService
     }
 
     /**
-     * 更新记录。
+     * 更新 PayPal 账户记录。
+     *
+     * @param  int  $id  PayPal 账户记录主键 ID
+     * @param  string  $action  要执行的业务操作标识
+     * @param  array  $data  经过 Controller 校验的业务字段；本方法读取 version、amount、value
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @return array PayPal 账户结果数组，包含 id 等字段
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     * @see PaypalDao::lock()
+     * @see PaypalDao::balance()
+     * @see PaypalDao::review()
+     * @see PaypalDao::withdrawal()
+     * @see PaypalDao::save()
+     * @see BusinessOperationLogDao::record()
      */
     public function update(
         int $id,
@@ -271,6 +295,11 @@ class PaypalService
 
     /**
      * 旧账户缺少收款基线时，以最近一次余额登记时间回溯计算。
+     *
+     * @param  PaypalAccount  $account  PayPal 账户模型
+     * @param  PaypalBalanceEntry|null  $balance  余额登记快照；null 表示不存在或尚未创建
+     * @param  array  $activity  按收款账户归集的订单金额及明细
+     * @return float 最近余额登记时已计入的累计美元收款金额
      */
     private function receivedBaseline(
         PaypalAccount $account,
@@ -293,6 +322,11 @@ class PaypalService
 
     /**
      * 按最近登记余额及后续收款、提现计算账户当前余额。
+     *
+     * @param  PaypalAccount  $account  PayPal 账户模型
+     * @param  array  $activity  按收款账户归集的订单金额及明细
+     * @return array PayPal 账户结果数组；返回字段：id、email、accountName、addedDate、version、balance、received、withdrawn、reviews、latestIncomingAt、updatedAt
+     * @see PaypalLegacyService::account()
      */
     private function presentAccount(PaypalAccount $account, array $activity): array
     {
@@ -353,7 +387,13 @@ class PaypalService
         ];
     }
 
-    /** 兼容原系统尚未记录累计收款基线、仅保存订单键的账户。 */
+    /**
+     * 兼容原系统尚未记录累计收款基线、仅保存订单键的账户。
+     *
+     * @param  array  $orders  用于累计收款的订单列表
+     * @param  array  $baselineKeys  余额登记时已计入的订单去重键列表
+     * @return float 未包含在历史去重键基线内的美元收款合计
+     */
     private function incomingOutsideBaseline(array $orders, array $baselineKeys): float
     {
         $ignored = array_fill_keys($baselineKeys, true);

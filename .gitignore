@@ -3,8 +3,6 @@
 .env
 .env.*
 !.env.example
-/build/env/*
-!/build/env/*.example
 .env.backup
 .env.*.local
 .env.production
@@ -48,3 +46,26 @@ Thumbs.db
 *.ps1
 *.bat
 /deploy/image.ref
+
+# Server-only release state and temporary registry credentials
+/.ghcr-auth-*/
+/incoming-*/
+/releases/
+/current
+/previous
+/pending
+/releases.log
+/pre-migrate.sh
+/.config-backup/
+# 这两个本地启动入口是项目源码，其余临时 PowerShell/Batch 仍忽略。
+!/scripts/start-local.ps1
+!/start.bat
+# 不再把旧 build 配置带回仓库。
+/build/
+/docs
+
+# 自动发布的服务器就绪标记与原子状态临时文件
+.deploy-ready
+.current.tmp
+.previous.tmp
+.pending.tmp

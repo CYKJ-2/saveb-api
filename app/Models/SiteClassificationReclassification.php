@@ -39,7 +39,12 @@ class SiteClassificationReclassification extends BaseModel
         'deleted_at' => 'datetime',
     ];
 
-    /** 使用完整复合键限定更新、删除与 refresh；查询时同时传入 release_id 和 order_id。 */
+    /**
+     * 使用完整复合键限定更新、删除与 refresh；查询时同时传入 release_id 和 order_id。
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query  待补充条件的 Eloquent 查询构造器
+     * @return \Illuminate\Database\Eloquent\Builder<static> 已应用上述条件的查询构造器，可继续追加查询
+     */
     protected function setKeysForSaveQuery($query)
     {
         foreach (['release_id', 'order_id'] as $column) {
@@ -53,6 +58,12 @@ class SiteClassificationReclassification extends BaseModel
         return $query;
     }
 
+    /**
+     * 使用发布批次与订单编号共同限定模型刷新查询。
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query  待补充条件的 Eloquent 查询构造器
+     * @return \Illuminate\Database\Eloquent\Builder<static> 已应用上述条件的查询构造器，可继续追加查询
+     */
     protected function setKeysForSelectQuery($query)
     {
         return $this->setKeysForSaveQuery($query);

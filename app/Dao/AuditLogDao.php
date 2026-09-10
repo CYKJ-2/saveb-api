@@ -9,6 +9,11 @@ use App\Models\AuditLog;
  */
 class AuditLogDao extends BaseDao
 {
+    /**
+     * 指定当前 DAO 使用的 Eloquent 模型类。
+     *
+     * @return class-string<AuditLog> 模型类名
+     */
     protected function model(): string
     {
         return AuditLog::class;

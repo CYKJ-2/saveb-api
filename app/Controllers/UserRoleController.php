@@ -29,6 +29,8 @@ class UserRoleController extends BaseController
      * 构造函数，注入用户 DAO。
      *
      * @param  UserDao  $userDao  用户数据访问对象
+     * @param  \App\Services\UserRoleService  $userRoleService  用户角色业务服务
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(
         private readonly UserDao $userDao,
@@ -41,8 +43,9 @@ class UserRoleController extends BaseController
      *
      * 列出指定用户的主角色 + 所有附加角色。
      *
-     * @param  int          $id  用户主键 ID
-     * @return JsonResponse      { user_id, username, primary_role, roles: [...] }
+     * @param  int  $id  用户主键 ID
+     * @return JsonResponse { user_id, username, primary_role, roles: [...] }
+     * @see UserDao::find()
      */
     public function index(int $id): JsonResponse
     {
@@ -80,8 +83,9 @@ class UserRoleController extends BaseController
      *
      * 获取用户的"主角色"（users.role_id 字段对应的角色）。
      *
-     * @param  int          $id  用户主键 ID
-     * @return JsonResponse      { user_id, role }
+     * @param  int  $id  用户主键 ID
+     * @return JsonResponse { user_id, role }
+     * @see UserDao::find()
      */
     public function show(int $id): JsonResponse
     {
@@ -113,9 +117,15 @@ class UserRoleController extends BaseController
      *   role_id    int?    角色主键 ID
      *   role_code  string? 角色 code
      *
-     * @param  int      $id      用户主键 ID
-     * @param  Request  $request HTTP 请求对象
-     * @return JsonResponse      { user_id, role }
+     * 请求字段（校验规则）：
+     * - role_id：'nullable|integer|exists:roles,id'
+     * - role_code：'nullable|string|max:64|exists:roles,code'
+     *
+     * @param  int  $id  用户主键 ID
+     * @param  Request  $request  HTTP 请求对象
+     * @return JsonResponse { user_id, role }
+     * @see UserDao::find()
+     * @see \App\Services\UserRoleService::sync()
      */
     public function assign(int $id, Request $request): JsonResponse
     {
@@ -152,8 +162,10 @@ class UserRoleController extends BaseController
      *
      * 清除用户的主角色（users.role_id 置为 NULL）。
      *
-     * @param  int          $id  用户主键 ID
-     * @return JsonResponse      { user_id, role: null }
+     * @param  int  $id  用户主键 ID
+     * @return JsonResponse { user_id, role: null }
+     * @see UserDao::find()
+     * @see \App\Services\UserRoleService::sync()
      */
     public function unassign(int $id): JsonResponse
     {
@@ -179,9 +191,15 @@ class UserRoleController extends BaseController
      * 请求体：
      *   role_ids  int[]  必填，角色 ID 列表（替换原列表）
      *
-     * @param  int      $id      用户主键 ID
-     * @param  Request  $request HTTP 请求对象
-     * @return JsonResponse      { user_id, username, roles }
+     * 请求字段（校验规则）：
+     * - role_ids：'present|array'
+     * - role_ids.*：'integer|distinct|exists:roles,id'
+     *
+     * @param  int  $id  用户主键 ID
+     * @param  Request  $request  HTTP 请求对象
+     * @return JsonResponse { user_id, username, roles }
+     * @see UserDao::find()
+     * @see \App\Services\UserRoleService::sync()
      */
     public function sync(int $id, Request $request): JsonResponse
     {
@@ -222,9 +240,15 @@ class UserRoleController extends BaseController
      *   role_id    int?
      *   role_code  string?
      *
-     * @param  int      $id      用户主键 ID
-     * @param  Request  $request HTTP 请求对象
-     * @return JsonResponse      { user_id, username, roles, message? }
+     * 请求字段（校验规则）：
+     * - role_id：'nullable|integer|exists:roles,id'
+     * - role_code：'nullable|string|max:64|exists:roles,code'
+     *
+     * @param  int  $id  用户主键 ID
+     * @param  Request  $request  HTTP 请求对象
+     * @return JsonResponse { user_id, username, roles, message? }
+     * @see UserDao::find()
+     * @see \App\Services\UserRoleService::sync()
      */
     public function add(int $id, Request $request): JsonResponse
     {
@@ -291,9 +315,11 @@ class UserRoleController extends BaseController
      *
      * 从用户身上移除一个角色。
      *
-     * @param  int          $id      用户主键 ID
-     * @param  int          $roleId  要移除的角色 ID
-     * @return JsonResponse          { user_id, username, roles, removed_role }
+     * @param  int  $id  用户主键 ID
+     * @param  int  $roleId  要移除的角色 ID
+     * @return JsonResponse { user_id, username, roles, removed_role }
+     * @see UserDao::find()
+     * @see \App\Services\UserRoleService::sync()
      */
     public function remove(int $id, int $roleId): JsonResponse
     {

@@ -40,7 +40,7 @@ class Role extends BaseModel
     /**
      * 字段类型转换。
      *
-     * @return array<string, string>
+     * @return array<string, string> 数据库字段名到 Eloquent 转换类型的映射
      */
     protected function casts(): array
     {
@@ -55,7 +55,7 @@ class Role extends BaseModel
     /**
      * 角色拥有的权限节点集合（含菜单与 action）。
      *
-     * @return BelongsToMany<Permission, Role>
+     * @return BelongsToMany<Permission, Role> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function permissions(): BelongsToMany
     {
@@ -68,7 +68,7 @@ class Role extends BaseModel
     /**
      * 兼容遗留的"单一角色"反查：通过 users.role_id 指向本角色的用户。
      *
-     * @return HasMany<User, Role>
+     * @return HasMany<User, Role> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function users(): HasMany
     {
@@ -81,6 +81,7 @@ class Role extends BaseModel
      * 入参可为权限 ID 或 code，方法内部自动识别。
      *
      * @param  array<int|string>  $permissionIdsOrCodes  权限节点 ID 或 code
+     * @return void 无返回值；副作用见方法说明
      */
     public function syncPermissions(array $permissionIdsOrCodes): void
     {
@@ -95,7 +96,7 @@ class Role extends BaseModel
      * 按 locale 解析显示名称。
      *
      * @param  string  $locale  例如 'en' | 'zh-CN' | 'zh'
-     * @return string           中文 locale 时返回 name_zh，否则返回 name
+     * @return string 中文 locale 时返回 name_zh，否则返回 name
      */
     public function nameIn(string $locale): string
     {
@@ -109,8 +110,8 @@ class Role extends BaseModel
     /**
      * 按 locale 解析描述。
      *
-     * @param  string    $locale
-     * @return string|null
+     * @param  string  $locale  当前界面语言，如 zh-CN 或 en-US
+     * @return string|null 角色模型实例；未找到时返回 null
      */
     public function descriptionIn(string $locale): ?string
     {
@@ -124,10 +125,7 @@ class Role extends BaseModel
     /**
      * 构造结构化 i18n 字段，便于前端按 locale 直接索引。
      *
-     * @return array{
-     *   name: array{en: string, zh: ?string},
-     *   description: array{en: ?string, zh: ?string}
-     * }
+     * @return array{ name: array{en: string, zh: ?string}, description: array{en: ?string, zh: ?string} } 角色结果数组；返回字段：name、description
      */
     public function i18n(): array
     {
@@ -146,8 +144,8 @@ class Role extends BaseModel
     /**
      * 判断给定 locale 是否属于中文族。
      *
-     * @param  string  $locale
-     * @return bool
+     * @param  string  $locale  当前界面语言，如 zh-CN 或 en-US
+     * @return bool locale 以 zh 开头时为 true
      */
     private function isChinese(string $locale): bool
     {
@@ -157,8 +155,8 @@ class Role extends BaseModel
     /**
      * 把"权限 ID 或 code 数组"统一转换为 ID 数组。
      *
-     * @param  array<int|string>  $values
-     * @return array<int>                 统一为 int 列表
+     * @param  array<int|string>  $values  待写入的字段值
+     * @return array<int> 统一为 int 列表
      */
     private function resolvePermissionIds(array $values): array
     {

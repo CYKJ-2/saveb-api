@@ -21,7 +21,7 @@ use Illuminate\Routing\Controller as BaseController;
  *   GET    /permissions/{id}      → 单个节点
  *   POST   /permissions           → 新增节点（菜单或权限点）
  *   PUT    /permissions/{id}      → 更新节点
- *   DELETE /permissions/{id}      → 删除节点（级联删除子节点与 role_permissions 关联）
+ *   DELETE /permissions/{id}      → 软删除节点及全部后代，有效权限计算排除已删除节点
  *
  * 注意：原 /permissions/tree（菜单树）端点已下线；
  * 完整的菜单+权限树在登录或 /auth/me 时由 AuthController 一并返回，
@@ -33,6 +33,7 @@ class PermissionController extends BaseController
      * 构造函数，注入权限服务层。
      *
      * @param  PermissionService  $permissionService  权限业务服务
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly PermissionService $permissionService)
     {
@@ -47,7 +48,8 @@ class PermissionController extends BaseController
      *   - parent_id int     按父节点 ID 过滤；不传则返回全部
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse      节点数组
+     * @return JsonResponse 节点数组
+     * @see PermissionService::all()
      */
     public function index(Request $request): JsonResponse
     {
@@ -88,7 +90,8 @@ class PermissionController extends BaseController
      * 注：本端点与 /permissions（扁平列表）共存，由调用方按需选择。
      *    扁平列表更适合做表格 / 列表场景；tree 端点更适合做级联选择器 / 树形展示。
      *
-     * @return JsonResponse  节点数组（每个节点带 children 字段）
+     * @return JsonResponse 节点数组（每个节点带 children 字段）
+     * @see PermissionService::tree()
      */
     public function tree(): JsonResponse
     {
@@ -107,8 +110,9 @@ class PermissionController extends BaseController
      * 获取单个权限节点详情。
      * 节点不存在时返回 404 + CODE_PERMISSION_NOT_FOUND。
      *
-     * @param  int          $id  权限节点主键 ID
-     * @return JsonResponse      单个节点
+     * @param  int  $id  权限节点主键 ID
+     * @return JsonResponse 单个节点
+     * @see PermissionService::find()
      */
     public function show(int $id): JsonResponse
     {
@@ -143,7 +147,8 @@ class PermissionController extends BaseController
      *   description_zh string?  中文描述
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       HTTP 201，新创建的节点
+     * @return JsonResponse HTTP 201，新创建的节点
+     * @see PermissionService::create()
      */
     public function store(Request $request): JsonResponse
     {
@@ -176,9 +181,27 @@ class PermissionController extends BaseController
      * 更新一个已有的权限节点。code 字段不允许修改（建议删除重建）。
      * 字段规则与 create 一致：未传字段保留原值；传 null 表示显式置空。
      *
-     * @param  int      $id      权限节点主键 ID
-     * @param  Request  $request HTTP 请求对象
-     * @return JsonResponse      更新后的节点
+     * 请求字段（校验规则）：
+     * - code：'sometimes|string|max:100'
+     * - name：'sometimes|string|max:100'
+     * - name_zh：'nullable|string|max:100'
+     * - path：'nullable|string|max:255'
+     * - icon：'nullable|string|max:64'
+     * - component：'nullable|string|max:255'
+     * - action：'nullable|string|max:32'
+     * - resource：'nullable|string|max:100'
+     * - parent_id：'nullable|integer|min:0'
+     * - level：'nullable|integer|in:1,2,3'
+     * - sort：'nullable|integer'
+     * - status：'nullable|integer|in:0,1'
+     * - hidden：'nullable|boolean'
+     * - description：'nullable|string|max:255'
+     * - description_zh：'nullable|string|max:255'
+     *
+     * @param  int  $id  权限节点主键 ID
+     * @param  Request  $request  HTTP 请求对象
+     * @return JsonResponse 更新后的节点
+     * @see PermissionService::update()
      */
     public function update(int $id, Request $request): JsonResponse
     {
@@ -207,12 +230,12 @@ class PermissionController extends BaseController
     /**
      * DELETE /permissions/{id}
      *
-     * 删除一个权限节点。数据库外键级联会自动处理：
-     *   - 子节点（parent_id 引用）
-     *   - role_permissions 关联表中的对应行
+     * 软删除指定节点及其全部后代。
+     * 角色授权关联保留，由有效权限计算排除已删除节点。
      *
-     * @param  int          $id  权限节点主键 ID
-     * @return JsonResponse      {deleted: true}
+     * @param  int  $id  权限节点主键 ID
+     * @return JsonResponse {deleted: true}
+     * @see PermissionService::delete()
      */
     public function destroy(int $id): JsonResponse
     {
@@ -225,9 +248,9 @@ class PermissionController extends BaseController
     /**
      * 将 Permission 模型序列化为 API 输出格式。
      *
-     * @param  Permission  $node             权限节点模型
-     * @param  bool        $includeChildren  是否递归填充 children（子树）
-     * @return array                         输出数组
+     * @param  Permission  $node  权限节点模型
+     * @param  bool  $includeChildren  是否递归填充 children（子树）
+     * @return array 输出数组
      */
     private function presentNode(Permission $node, bool $includeChildren): array
     {

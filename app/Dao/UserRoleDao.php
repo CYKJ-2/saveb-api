@@ -11,6 +11,11 @@ class UserRoleDao
 {
     /**
      * 同步角色关联和授权人，同时保留仍有效的兼容主角色。
+     *
+     * @param  User  $user  用户模型
+     * @param  array  $ids  角色主键 ID 列表
+     * @param  int|null  $actorId  授权操作人的用户 ID
+     * @return void 无返回值；副作用见方法说明
      */
     public function sync(
         User $user,

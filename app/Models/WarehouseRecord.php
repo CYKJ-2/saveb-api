@@ -29,6 +29,8 @@ class WarehouseRecord extends BaseModel
 
     /**
      * 定义字段类型转换。
+     *
+     * @return array<string, string> 数据库字段名到 Eloquent 转换类型的映射
      */
     protected function casts(): array
     {
@@ -42,7 +44,7 @@ class WarehouseRecord extends BaseModel
     /**
      * 关联采购任务。
      *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\App\Models\ProcurementTask, $this>
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\App\Models\ProcurementTask, $this> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function task(): BelongsTo
     {

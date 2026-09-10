@@ -21,6 +21,13 @@ class WarehouseService
         'shipped',
     ];
 
+    /**
+     * 注入 仓库记录处理所需的依赖。
+     *
+     * @param  WarehouseDao  $warehouseDao  仓库记录数据访问对象
+     * @param  BusinessOperationLogDao  $businessOperationLogDao  业务操作日志数据访问对象
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(
         private WarehouseDao $warehouseDao,
         private BusinessOperationLogDao $businessOperationLogDao,
@@ -28,7 +35,11 @@ class WarehouseService
     }
 
     /**
-     * 分页查询。
+     * 按筛选条件分页查询仓库记录。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 scope、keyword、status
+     * @return array 当前页记录及分页信息；汇总字段按业务方法计算
+     * @see WarehouseDao::all()
      */
     public function listing(array $filters): array
     {
@@ -77,6 +88,16 @@ class WarehouseService
 
     /**
      * 在同一事务内校验版本、更新仓库、同步采购并写入操作日志。
+     *
+     * @param  int  $id  仓库记录记录主键 ID
+     * @param  array  $data  经过 Controller 校验的业务字段；本方法读取 version、items、status、notes
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @return array 仓库记录结果数组，包含 id 等字段
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     * @see WarehouseDao::lock()
+     * @see WarehouseDao::save()
+     * @see WarehouseDao::syncTask()
+     * @see BusinessOperationLogDao::record()
      */
     public function action(
         int $id,
@@ -120,6 +141,11 @@ class WarehouseService
 
     /**
      * 校验质检和物流信息；累计发货数量不能倒退或超过采购数量。
+     *
+     * @param  array  $items  订单商品明细
+     * @param  array  $updates  本次提交的商品质检与发货更新
+     * @return array 合并质检、累计发货数量和物流信息后的商品列表
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
      */
     private function mergeItemUpdates(array $items, array $updates): array
     {
@@ -138,6 +164,11 @@ class WarehouseService
 
     /**
      * 优先按实际发货数量推导状态，待发货状态要求全部商品质检通过。
+     *
+     * @param  array  $items  订单商品明细
+     * @param  string  $status  目标业务状态或查询状态
+     * @return string 标准化后的业务状态
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
      */
     private function resolveFulfillmentStatus(array $items, string $status): string
     {

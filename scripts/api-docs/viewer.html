@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SAVEB API · 接口说明</title>
+  <style>
+    :root{color-scheme:light;--bg:#f5f7fb;--panel:#fff;--subtle:#f0f4fa;--text:#182c46;--muted:#60738a;--line:#dce4ee;--accent:#2764d8;--selected:#e8efff;--code:#0d1b2d;--code-text:#d2e5ff;--shadow:0 12px 40px #1b355609}
+    html.dark{color-scheme:dark;--bg:#091426;--panel:#0e1e34;--subtle:#132740;--text:#deebff;--muted:#93acc8;--line:#263e5b;--accent:#82adff;--selected:#1b365b;--code:#071020;--code-text:#c3dcff;--shadow:none}
+    *{box-sizing:border-box}body{margin:0;font:14px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text)}button,input,select{font:inherit}button,a,input,select{outline-offset:4px}a{color:var(--accent);text-decoration:none}button{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent)}
+    .topbar{height:70px;position:fixed;z-index:20;inset:0 0 auto;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 26px;gap:20px}.brand{display:flex;align-items:center;gap:12px;color:var(--text)}.mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#2260d1;color:#fff;font-weight:800}.brand strong{font-size:16px;letter-spacing:.6px}.brand small{color:var(--muted);padding-left:12px;border-left:1px solid var(--line);margin-left:2px}.actions{display:flex;gap:8px;align-items:center}.button{padding:6px 12px;border:1px solid var(--line);background:var(--panel);border-radius:7px;color:var(--text);font-size:12px;white-space:nowrap}.button:hover{background:var(--subtle)}
+    aside{position:fixed;inset:70px auto 0 0;width:298px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:20px 15px 12px}.search{border:1px solid var(--line);background:var(--bg);padding:9px 12px;border-radius:8px;width:100%;color:var(--text)}.filters{display:flex;gap:8px;align-items:center;margin:10px 0}.filters select{border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--muted);padding:4px;font-size:12px;max-width:125px}.result-count{font-size:12px;color:var(--muted);margin-left:auto}.nav{overflow:auto;flex:1;padding-top:5px}.group{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.7px;margin:20px 10px 7px}.nav-link{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;color:var(--text);font-size:12px;line-height:1.6;margin:2px 0}.nav-link:hover{background:var(--subtle)}.nav-link.active{background:var(--selected);color:var(--accent)}.nav-link .label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.verb{font:700 10px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;display:inline-block;min-width:43px;color:#087b70;flex-shrink:0}.verb.post{color:#2764d8}.verb.put{color:#ad6c05}.verb.delete{color:#c8465d}html.dark .verb{color:#65d8bd}html.dark .verb.post{color:#83b0ff}html.dark .verb.put{color:#f2c674}html.dark .verb.delete{color:#ff93a4}.side-footer{padding:12px 9px 0;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+    main{margin:70px 0 0 298px;padding:36px clamp(24px,4vw,70px) 70px;max-width:1800px}.eyebrow{font-size:11px;letter-spacing:2px;font-weight:700;color:var(--accent);text-transform:uppercase}.hero{padding:22px 0 30px}.hero h1{font-size:36px;line-height:1.3;letter-spacing:-1px;margin:12px 0 16px}.hero p{max-width:720px;color:var(--muted);font-size:15px}.pill{display:inline-block;border:1px solid var(--line);color:var(--muted);font-size:11px;border-radius:30px;padding:3px 10px;margin-right:6px}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:8px 0 30px}.metric{padding:20px 23px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.metric strong{font-size:27px;display:block;line-height:1.3}.metric span{font-size:12px;color:var(--muted)}.panel{border:1px solid var(--line);background:var(--panel);border-radius:12px;margin-bottom:20px;box-shadow:var(--shadow);overflow:hidden}.panel-head{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}.panel-head h2{font-size:14px;margin:0}.panel-content{padding:18px 20px}.panel-content p:first-child{margin-top:0}.panel-content p:last-child{margin-bottom:0}.general-note{display:flex;gap:13px;margin-bottom:15px}.general-note:last-child{margin-bottom:0}.number{color:var(--accent);font:12px ui-monospace,monospace;padding-top:4px}.general-note p{margin:0;color:var(--muted)}.module-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.module-card{padding:17px 19px;background:var(--panel);border:1px solid var(--line);border-radius:9px;display:block;color:var(--text)}.module-card span{display:block;color:var(--muted);font-size:12px;margin-top:3px}.module-card:hover{border-color:var(--accent)}
+    .endpoint-heading h1{font-size:25px;margin:8px 0 18px}.route{display:flex;align-items:flex-start;gap:14px;background:var(--subtle);padding:13px 16px;border:1px solid var(--line);border-radius:8px;margin-bottom:15px}.route code{font-size:14px;word-break:break-all;flex:1}.route .verb{font-size:12px;line-height:2}.route .button{padding:2px 8px}.details{display:flex;flex-wrap:wrap;gap:8px 22px;color:var(--muted);font-size:12px;margin-bottom:22px}.details code{color:var(--text);word-break:break-all}.note{padding:12px 16px;background:var(--selected);border-left:3px solid var(--accent);border-radius:0 7px 7px 0;margin:12px 0;color:var(--text);font-size:13px}.columns{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr);gap:22px;align-items:start}.column{min-width:0}.section-title{font-size:15px;margin:27px 0 12px}.badge{font-size:11px;line-height:1.6;border-radius:4px;padding:2px 6px;background:var(--subtle);color:var(--muted);white-space:nowrap}.required{color:#cb415c;font-size:10px;margin-left:7px}.muted{color:var(--muted)}.empty{padding:24px;color:var(--muted);text-align:center}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px;text-align:left}th{background:var(--subtle);color:var(--muted);font-size:11px;font-weight:600}td,th{padding:11px 16px;border-bottom:1px solid var(--line);vertical-align:top}tr:last-child td{border-bottom:0}td code{font-size:11px;word-break:break-word}.param-name{font-weight:600;color:var(--text)}.field-note{color:var(--muted);margin-top:3px;overflow-wrap:anywhere}.rules{font-size:10px;color:var(--muted);margin-top:6px;word-break:break-all}.field-type{font:10px ui-monospace,Consolas,monospace;color:var(--accent)}.field{border-bottom:1px solid var(--line);padding:12px 18px}.field:last-child{border-bottom:0}.field-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;line-height:1.6}.field .field{margin-left:5px;border-left:1px solid var(--line);font-size:12px}.children{margin:9px 0 0 5px}.children summary{color:var(--accent);font-size:11px;cursor:pointer;user-select:none}.field .field-note{font-size:12px}.codebox{margin:0;background:var(--code);color:var(--code-text);padding:18px;font:11px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;overflow:auto;max-height:550px;tab-size:2;white-space:pre;scrollbar-width:thin}.codebox.wrap{white-space:pre-wrap;word-break:break-word}.tabs{display:flex;gap:5px;flex-wrap:wrap}.tab{border:1px solid var(--line);border-radius:5px;padding:3px 9px;color:var(--muted);background:var(--panel);font-size:11px}.tab.active{border-color:var(--accent);color:var(--accent);background:var(--selected)}.source{font-size:11px;color:var(--muted);margin:24px 0}.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:9px;background:var(--text);color:var(--panel);box-shadow:var(--shadow);z-index:40;display:none}.mobile-menu{display:none}.mobile-shade{display:none}
+    @media(min-width:1500px){.columns{grid-template-columns:minmax(0,1.7fr) minmax(350px,1fr)}}
+    @media(max-width:1150px){aside{width:260px}main{margin-left:260px;padding:28px 24px}.columns{grid-template-columns:1fr}.module-grid{grid-template-columns:repeat(2,1fr)}.examples{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.examples .panel{margin:0}.brand small{display:none}}
+    @media(max-width:760px){.topbar{height:60px;padding:0 14px}.mobile-menu{display:block}.brand strong{font-size:13px}.mark{width:28px;height:28px}.actions .button{font-size:11px;padding:5px 8px}.brand{gap:7px}aside{top:60px;transform:translateX(-100%);transition:transform .15s;z-index:19;width:285px}body.menu-open aside{transform:translateX(0)}body.menu-open .mobile-shade{display:block;position:fixed;inset:60px 0 0;background:#0006;z-index:18}main{margin:60px 0 0;padding:22px 16px 45px}.hero h1{font-size:29px}.hero{padding-top:10px}.metrics{gap:8px}.metric{padding:14px 10px}.metric strong{font-size:22px}.metric span{font-size:10px}.module-grid{grid-template-columns:1fr 1fr;gap:9px}.module-card{padding:13px}.columns{gap:5px}.examples{display:block}.examples .panel{margin-bottom:18px}.endpoint-heading h1{font-size:22px}.route{padding:10px;gap:7px}.route code{font-size:12px}.panel-head{padding:13px 15px}.field{padding:10px 13px}.codebox{font-size:10px}.download-label{display:none}}
+    @media print{.topbar,aside,.actions,.button,.toast{display:none!important}main{margin:0;padding:0}.columns{display:block}.codebox{max-height:none;white-space:pre-wrap}.panel{break-inside:avoid}details>*{display:block!important}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#overview"><span class="mark">S</span><strong>SAVEB API</strong><small>接口说明 · Developer reference</small></a>
+    <div class="actions"><button id="download" class="button">↓ <span class="download-label">下载 </span>OpenAPI</button><button id="theme" class="button" aria-label="切换明暗主题">明暗切换</button><button id="menu" class="button mobile-menu" aria-label="打开接口目录">目录</button></div>
+  </header>
+  <div class="mobile-shade" id="shade"></div>
+  <aside aria-label="接口目录">
+    <input id="search" class="search" type="search" placeholder="搜索接口、参数、权限…" aria-label="搜索接口">
+    <div class="filters"><select id="method" aria-label="筛选请求方法"><option value="">全部方法</option><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select><span id="count" class="result-count"></span></div>
+    <nav id="nav" class="nav"></nav><div class="side-footer" id="footer"></div>
+  </aside>
+  <main id="main"></main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script id="openapi" type="application/json">__OPENAPI_DOCUMENT__</script>
+  <script>
+  (() => {
+    'use strict';
+    const spec=JSON.parse(document.getElementById('openapi').textContent), schemas=spec.components.schemas;
+    const entries=Object.entries(spec.paths).flatMap(([path,methods])=>Object.entries(methods).map(([method,op])=>({path,method:method.toUpperCase(),...op})));
+    const byId=new Map(entries.map(x=>[x.operationId,x])), el=id=>document.getElementById(id);
+    const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const pretty=value=>JSON.stringify(value,null,2), badge=method=>`<span class="verb ${method.toLowerCase()}">${method}</span>`;
+    const groups=[...new Set(entries.map(x=>x.tags[0]))];
+    let responseCode='';
+    try{document.documentElement.classList.toggle('dark',localStorage.getItem('saveb-api-docs-theme')==='dark')}catch{}
+    el('theme').onclick=()=>{const dark=document.documentElement.classList.toggle('dark');try{localStorage.setItem('saveb-api-docs-theme',dark?'dark':'light')}catch{}};
+    el('menu').onclick=()=>document.body.classList.toggle('menu-open');el('shade').onclick=()=>document.body.classList.remove('menu-open');
+    el('download').onclick=()=>{const blob=new Blob([pretty(spec)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='saveb-api.openapi.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+    el('footer').textContent=`${spec.info.version} · OpenAPI ${spec.openapi} · 可离线预览`;
+    function navigation(){
+      const q=el('search').value.trim().toLowerCase(),method=el('method').value;
+      const visible=entries.filter(x=>(!method||x.method===method)&&(!q||[x.summary,x.path,x.tags[0],x.description,JSON.stringify(x['x-permissions']),JSON.stringify(x.parameters),JSON.stringify(x['x-request-fields'])].join(' ').toLowerCase().includes(q)));
+      el('count').textContent=`${visible.length} / ${entries.length}`;
+      el('nav').innerHTML=`<a class="nav-link ${location.hash==='#overview'||!location.hash?'active':''}" href="#overview">接口总览与调用约定</a>`+groups.map(group=>{const rows=visible.filter(x=>x.tags[0]===group);return rows.length?`<div class="group">${esc(group)} · ${rows.length}</div>`+rows.map(x=>`<a class="nav-link ${location.hash==='#'+x.operationId?'active':''}" href="#${x.operationId}" title="${esc(x.method+' '+x.path)}">${badge(x.method)}<span class="label">${esc(x.summary)}</span></a>`).join(''):''}).join('')+(visible.length?'':'<p class="empty">没有匹配的接口</p>');
+    }
+    el('search').addEventListener('input',navigation);el('method').addEventListener('change',navigation);
+    document.addEventListener('keydown',event=>{if(event.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){event.preventDefault();el('search').focus();document.body.classList.add('menu-open')}if(event.key==='Escape')document.body.classList.remove('menu-open')});
+    function resolve(schema){
+      if(!schema)return {};
+      if(schema.$ref)return {...schemas[schema.$ref.split('/').pop()],...Object.fromEntries(Object.entries(schema).filter(([key])=>key!=='$ref'))};
+      if(schema.allOf){const fields=Object.assign({},...schema.allOf.map(x=>resolve(x).properties||{}));return {...schema,type:'object',properties:fields}}
+      return schema;
+    }
+    function typeName(schema){
+      if(schema.$ref)return schema.$ref.split('/').pop();
+      if(schema.anyOf&&!schema.properties)return schema.anyOf.map(typeName).join(' | ');
+      if(schema.allOf)return schema.allOf.map(typeName).join(' + ');
+      const t=Array.isArray(schema.type)?schema.type.join(' | '):schema.type||'任意 JSON';
+      if(t.includes('array'))return `${typeName(schema.items||{})}[]${t.includes('null')?' | null':''}`;
+      return t+(schema.format?' · '+schema.format:'');
+    }
+    function properties(schema){
+      const s=resolve(schema);if(s.properties)return s;
+      if(s.items)return properties(s.items);
+      if(s.anyOf){const inner=s.anyOf.find(x=>x.type!=='null');return inner?properties(inner):{}}
+      return {};
+    }
+    function schemaFields(schema,depth=0,seen=[]){
+      const s=resolve(schema);
+      if(s.anyOf&&!s.properties)return s.anyOf.map(branch=>`<div class="field"><span class="field-type">${esc(typeName(branch))}</span>${schemaFields(branch,depth+1,seen)}</div>`).join('');
+      if(s.items)return `<div class="field"><div class="field-type">数组元素 · ${esc(typeName(s.items))}</div>${schemaFields(s.items,depth,seen)}</div>`;
+      if(!s.properties)return `<div class="field"><span class="field-type">${esc(typeName(schema))}</span><div class="field-note">${esc(s.description||'请参照上级字段说明及示例。')}${s.additionalProperties?' · 对象键名随业务数据变化':''}</div></div>`;
+      return Object.entries(s.properties).map(([name,raw])=>{
+        const field=resolve(raw),child=properties(raw),reference=raw.$ref||raw.items?.$ref;
+        const description=raw.description||field.description||'';
+        const expandable=child.properties&&depth<5&&(!reference||!seen.includes(reference));
+        let constraints=[];if(field.enum)constraints.push('枚举：'+field.enum.map(x=>JSON.stringify(x)).join(' / '));if(field.default!==undefined)constraints.push('默认：'+JSON.stringify(field.default));
+        const nested=expandable?`<details class="children" ${depth<1?'open':''}><summary>${Object.keys(child.properties).length} 个子字段</summary>${schemaFields(child,depth+1,[...seen,...(reference?[reference]:[])])}</details>`:'';
+        return `<div class="field"><div class="field-title"><code class="param-name">${esc(name)}</code><span class="field-type">${esc(typeName(raw))}</span>${(s.required||[]).includes(name)?'<span class="badge">必有字段</span>':'<span class="muted" style="font-size:10px">可缺省</span>'}</div><div class="field-note">${esc(description)}</div>${constraints.length?'<div class="rules">'+esc(constraints.join('；'))+'</div>':''}${nested}</div>`;
+      }).join('');
+    }
+    function parametersTable(params){
+      if(!params.length)return '<div class="empty">无路径或查询参数</div>';
+      return `<div class="table-wrap"><table><thead><tr><th>参数 / 位置</th><th>类型与说明</th></tr></thead><tbody>${params.map(p=>`<tr><td><code class="param-name">${esc(p.name)}</code>${p.required?'<span class="required">必填</span>':''}<div class="rules">${esc(p.in)}</div></td><td><span class="field-type">${esc(typeName(p.schema))}</span><div class="field-note">${esc(p.description)}</div>${p.schema.default!==undefined?'<div class="rules">默认：'+esc(JSON.stringify(p.schema.default))+'</div>':''}${p.schema['x-laravel-rules']?'<div class="rules">'+esc(p.schema['x-laravel-rules'])+'</div>':''}</td></tr>`).join('')}</tbody></table></div>`;
+    }
+    function bodyTable(op){
+      const fields=(op['x-request-fields']||[]).filter(x=>!op.parameters.some(p=>p.in==='query'&&p.name===x.name));
+      if(!fields.length)return '<div class="empty">无需请求体</div>';
+      const fieldType=field=>{
+        if(!field.schema.items)return typeName(field.schema);
+        const item=fields.find(x=>x.name===field.name+'.*');
+        const items=item?.schema||(fields.some(x=>x.name.startsWith(field.name+'.*.'))?{type:'object'}:field.schema.items);
+        return typeName({...field.schema,items});
+      };
+      return `<div class="table-wrap"><table><thead><tr><th>字段</th><th>说明 / 校验规则</th></tr></thead><tbody>${fields.map(f=>`<tr><td><code class="param-name">${esc(f.name)}</code>${f.required?'<span class="required">必填</span>':''}<div class="field-type">${esc(fieldType(f))}</div></td><td>${esc(f.schema.description)}<div class="rules">${esc(f.rules)}</div></td></tr>`).join('')}</tbody></table></div>`;
+    }
+    function sample(schema,name=''){
+      const s=resolve(schema);if(s.default!==undefined)return s.default;if(s.enum)return s.enum.find(x=>x!==null);if(s.format==='uuid')return '11111111-1111-4111-8111-111111111111';if(s.format==='date')return '2026-09-09';if(s.format==='email')return 'sample@example.com';if(name==='month')return '2026-09';if(name==='locale')return 'zh-CN';if(name==='page')return 1;if(name==='per_page')return 20;
+      return (Array.isArray(s.type)?s.type[0]:s.type)==='integer'?1:'example';
+    }
+    function requestExample(op){
+      let path=op.path;for(const p of op.parameters.filter(p=>p.in==='path'))path=path.replace('{'+p.name+'}',String(sample(p.schema,p.name)));
+      const query=op.parameters.filter(p=>p.in==='query'&&(p.required||p.schema.default!==undefined||p.name==='locale')).map(p=>encodeURIComponent(p.name)+'='+encodeURIComponent(sample(p.schema,p.name))).join('&');
+      const lines=[`curl -X ${op.method} 'http://localhost:8080${path}${query?'?'+query:''}'`,`  -H 'Accept: application/json'`];
+      if(op.security.length)lines.push(`  -H 'Authorization: Bearer <YOUR_TOKEN>'`);
+      const content=op.requestBody?.content||{};
+      if(content['multipart/form-data'])lines.push(`  -F 'file=@/path/to/invoice.png'`);
+      if(content['application/json']){lines.push(`  -H 'Content-Type: application/json'`);lines.push(`  --data '${pretty(content['application/json'].example).replace(/'/g,"'\\''")}'`)}
+      return lines.join(' \\\n');
+    }
+    function codePanel(title,id,code){return `<section class="panel"><div class="panel-head"><h2>${title}</h2><button class="button" data-copy="${id}">复制</button></div><pre class="codebox" id="${id}">${esc(code)}</pre></section>`}
+    function overview(){
+      el('main').innerHTML=`<section class="hero"><div class="eyebrow">API Reference / ${esc(spec.info.version)}</div><h1>SAVEB API 接口说明</h1><p>从认证到业务统计，查阅每个接口的请求参数、返回字段、权限与调用示例。文档依据当前实际路由生成，可在浏览器或本地文件中直接预览。</p><span class="pill">Laravel · Bearer Token</span><span class="pill">中文字段说明</span><span class="pill">示例数据均为虚构</span></section>
+      <div class="metrics"><div class="metric"><strong>${entries.length}</strong><span>实际 API 接口</span></div><div class="metric"><strong>${groups.length}</strong><span>业务模块</span></div><div class="metric"><strong>${Object.keys(schemas).length}</strong><span>可展开的数据结构</span></div></div>
+      <section class="panel"><div class="panel-head"><h2>调用前先了解这些约定</h2><span class="badge">BASE URL · localhost:8080</span></div><div class="panel-content">${spec['x-general-notes'].map((note,i)=>`<div class="general-note"><span class="number">0${i+1}</span><p>${esc(note)}</p></div>`).join('')}</div></section>
+      <h2 class="section-title">按业务模块查阅</h2><div class="module-grid">${groups.map(group=>{const list=entries.filter(x=>x.tags[0]===group);return `<a class="module-card" href="#${list[0].operationId}"><strong>${esc(group)}</strong><span>${list.length} 个接口 →</span></a>`}).join('')}</div>
+      <h2 class="section-title">业务错误码</h2><section class="panel"><details><summary class="panel-content">展开查看 RespDef 定义的 ${spec['x-error-codes'].length} 个状态码</summary><div class="panel-content muted">以下是项目定义的业务码，和 HTTP 状态码不同；接口只会返回与当前操作相关的错误。Laravel 校验错误及 HTTP 异常可能不带 code。</div><div class="table-wrap"><table><thead><tr><th>业务码</th><th>名称</th><th>说明</th></tr></thead><tbody>${spec['x-error-codes'].map(x=>`<tr><td><code>${esc(x.code)}</code></td><td><code>${esc(x.name)}</code></td><td>${esc(x.message)}</td></tr>`).join('')}</tbody></table></div></details></section>
+      <p class="source">文档包含仍注册的兼容接口。源码有变更后运行 <code>php scripts/generate-api-docs.php</code> 重新生成。OpenAPI 文件可导入支持该格式的 API 工具。</p>`;
+    }
+    function renderResponse(op){
+      const response=op.responses[responseCode],contents=Object.entries(response.content||{}),json=contents.find(([mime])=>mime==='application/json');
+      el('response-description').textContent=response.description;
+      el('response-fields').innerHTML=json?schemaFields(json[1].schema):'<div class="empty">'+esc(contents.map(([mime])=>mime).join(' / '))+' 文件响应，没有 JSON 字段。</div>';
+      const example=json?.[1].example??(responseCode==='422'?{message:'参数校验未通过。',errors:{field:['请按参数说明填写。']}}:responseCode==='401'?{success:false,code:op.security.length?-1005:-1100,message:op.security.length?'无效的 Token。':'用户名或密码错误。',data:null}:responseCode==='403'?{success:false,code:-2106,message:'缺少接口所需权限。',data:null}:json?{message:response.description}:response.description);
+      el('response-code').textContent=typeof example==='string'?example:pretty(example);
+      document.querySelectorAll('[data-status]').forEach(button=>button.classList.toggle('active',button.dataset.status===responseCode));
+    }
+    function endpoint(op){
+      responseCode=Object.keys(op.responses).find(x=>x.startsWith('2'));
+      const permissions=op['x-permissions'].join(' AND '),bodyMime=Object.keys(op.requestBody?.content||{})[0];
+      const exportSections=op['x-export-sections']||(op['x-export-columns']?.length?[{title:'CSV 列顺序与中英文表头',columns:op['x-export-columns']}]:[]);
+      el('main').innerHTML=`<div class="endpoint-heading"><div class="eyebrow">${esc(op.tags[0])}</div><h1>${esc(op.summary)}</h1><div class="route">${badge(op.method)}<code id="route-path">${esc(op.path)}</code><button class="button" data-copy="route-path">复制</button></div><div class="details"><span>认证：<code>${op.security.length?'Bearer Token':'无需登录'}</code></span><span>权限：<code>${esc(permissions||'无额外权限码')}</code></span></div>${op.description.split('\n\n').filter(Boolean).map(note=>'<div class="note">'+esc(note)+'</div>').join('')}</div>
+      <div class="columns"><div class="column">
+        <h2 class="section-title">请求参数</h2><section class="panel"><div class="panel-head"><h2>Path / Query</h2><span class="badge">${op.parameters.length} 个参数</span></div>${parametersTable(op.parameters)}</section>
+        ${op.method!=='GET'?`<section class="panel"><div class="panel-head"><h2>请求体</h2><span class="badge">${esc(bodyMime||'无')}</span></div>${bodyTable(op)}</section>`:''}
+        ${exportSections.map(section=>`<section class="panel"><div class="panel-head"><h2>${esc(section.title)}</h2><span class="badge">CSV · 列顺序</span></div><div class="table-wrap"><table><thead><tr><th>字段</th><th>中文</th><th>English</th></tr></thead><tbody>${section.columns.map(x=>`<tr><td><code>${esc(x.field)}</code></td><td>${esc(x.zh)}</td><td>${esc(x.en)}</td></tr>`).join('')}</tbody></table></div></section>`).join('')}
+        <h2 class="section-title">返回说明</h2><section class="panel"><div class="panel-head"><h2>HTTP 状态</h2><div class="tabs">${Object.keys(op.responses).map(status=>`<button class="tab" data-status="${status}">${status}</button>`).join('')}</div></div><div class="panel-content muted" id="response-description"></div><div id="response-fields"></div></section>
+      </div><div class="column"><h2 class="section-title">调用示例 <span class="muted" style="font-size:11px;font-weight:400">仅示意结构，不会执行请求</span></h2><div class="examples">${codePanel('cURL · Bash / WSL','request-code',requestExample(op))}${codePanel('返回示例','response-code','')}</div><p class="source">${esc(op['x-handler'])}<br>${esc(op['x-source'])}<br>示例 ID、金额、账号均为虚构。必填字段还需满足数据库存在性与业务关联校验。</p></div></div>`;
+      document.querySelectorAll('[data-status]').forEach(button=>button.onclick=()=>{responseCode=button.dataset.status;renderResponse(op)});
+      renderResponse(op);
+    }
+    async function copy(text){try{await navigator.clipboard.writeText(text);el('toast').textContent='已复制';el('toast').style.display='block';setTimeout(()=>el('toast').style.display='none',1500)}catch{el('toast').textContent='浏览器未允许剪贴板，请选中文字复制';el('toast').style.display='block';setTimeout(()=>el('toast').style.display='none',3000)}}
+    document.addEventListener('click',event=>{const button=event.target.closest('[data-copy]');if(button)copy(el(button.dataset.copy).textContent)});
+    function route(){const id=decodeURIComponent(location.hash.slice(1)),op=byId.get(id);if(op)endpoint(op);else overview();navigation();document.body.classList.remove('menu-open');window.scrollTo(0,0)}
+    window.addEventListener('hashchange',route);route();
+  })();
+  </script>
+</body>
+</html>

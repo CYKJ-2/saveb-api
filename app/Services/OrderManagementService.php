@@ -23,12 +23,21 @@ class OrderManagementService
         'unmatched' => '未匹配',
     ];
 
+    /**
+     * 注入 订单管理处理所需的依赖。
+     *
+     * @param  OrderManagementDao  $orderManagementDao  订单管理数据访问对象
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private OrderManagementDao $orderManagementDao)
     {
     }
 
     /**
      * 归一化不同来源的订单状态别名。
+     *
+     * @param  string|null  $value  待归一化的原始值
+     * @return string 标准化后的业务状态
      */
     public static function status(?string $value): string
     {
@@ -43,6 +52,10 @@ class OrderManagementService
 
     /**
      * 合并重复客服并归一化分摊比例；未提供比例时平均分配。
+     *
+     * @param  array  $raw  来源系统保留的原始业务快照；本方法读取 staffAllocations
+     * @param  string  $staff  订单主客服编码
+     * @return array 合并并归一化后的客服分摊明细
      */
     public static function allocations(array $raw, string $staff): array
     {
@@ -73,6 +86,15 @@ class OrderManagementService
 
     /**
      * 合并来源订单与 Invoice，统一字段后筛选，供列表、统计和导出共用。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 _orderId
+     * @param  bool  $allowTesting  是否允许纳入测试订单；默认 false
+     * @return array 合并去重并筛选后的统一订单列表，尚未分页
+     * @see OrderManagementDao::overrides()
+     * @see OrderManagementDao::rates()
+     * @see OrderManagementDao::invoiceKeys()
+     * @see OrderManagementDao::invoices()
+     * @see OrderManagementDao::orders()
      */
     public function rows(array $filters, bool $allowTesting = false): array
     {
@@ -91,16 +113,23 @@ class OrderManagementService
             $rows[] = $this->normalizeOrder($order, $overrides, $rates);
         }
         $rows = array_filter($rows, fn (array $row) => $this->matchesFilters($row, $filters, $allowTesting));
-        usort(
-            $rows,
-            fn ($firstRow, $secondRow) => strtotime($secondRow['createTime']) <=> strtotime($firstRow['createTime']) ?: strcmp((string) $secondRow['id'], (string) $firstRow['id']),
-        );
+        // 日期只解析一次；比较函数会调用约 n log n 次，不能反复解析同一日期。
+        $timestamps = array_map(fn ($row) => strtotime($row['createTime']), $rows);
+        $identifiers = array_map(fn ($row) => (string) $row['id'], $rows);
+        if ($rows !== []) {
+            $positions = range(0, count($rows) - 1);
+            array_multisort($timestamps, SORT_DESC, SORT_NUMERIC, $identifiers, SORT_DESC, SORT_STRING, $positions, SORT_ASC, SORT_NUMERIC, $rows);
+        }
 
         return array_values($rows);
     }
 
     /**
      * 对统一筛选结果分页，保持列表与统计、导出的数据口径一致。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件
+     * @param  bool  $testing  是否允许查询测试订单
+     * @return array 当前页记录及分页信息；汇总字段按业务方法计算
      */
     public function search(array $filters, bool $testing): array
     {
@@ -109,7 +138,12 @@ class OrderManagementService
         return \App\Common\PageResult::fromRows($rows, $filters);
     }
 
-    /** 获取编辑面板的客服选项。 */
+    /**
+     * 获取编辑面板的客服选项。
+     *
+     * @return array 订单管理结果数组；返回字段：staff
+     * @see OrderManagementDao::staffCodes()
+     */
     public function editorOptions(): array
     {
         return ['staff' => $this->orderManagementDao->staffCodes()];
@@ -117,6 +151,15 @@ class OrderManagementService
 
     /**
      * 校验版本并调整订单状态和客服分摊。
+     *
+     * @param  int  $id  订单管理记录主键 ID
+     * @param  array  $data  经过 Controller 校验的业务字段；本方法读取 version、targetStatus、staffAllocations、primaryStaffCode
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @param  bool  $allowTesting  是否允许纳入测试订单；默认 false
+     * @return array 订单管理结果数组，包含 id 等字段
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     * @see OrderManagementDao::lock()
+     * @see OrderManagementDao::save()
      */
     public function adjust(
         int $id,
@@ -196,6 +239,9 @@ class OrderManagementService
 
     /**
      * 将 Invoice 商品、客服分摊和金额转换为统一订单字段。
+     *
+     * @param  InvoiceOrder  $invoice  Invoice 订单模型
+     * @return array 订单管理结果数组；返回字段：id、kind、orderId、paypalOrderId、customerFullName、clientSite、classification、topInfluencer、recipientPaypal、paymentStatus、amount、amountUsd、currency、items、productName、products、createTime、date、staff、staffAllocations、version
      */
     private function normalizeInvoice(InvoiceOrder $invoice): array
     {
@@ -246,7 +292,40 @@ class OrderManagementService
     }
 
     /**
+     * 从采集快照提取各商品的名称、链接和数量，供列表逐件展示。
+     *
+     * @param  array  $raw  来源订单快照，读取 products 中的 name、url、quantity
+     * @return array<int, array{name: string, url: string, quantity: int}> 商品明细；缺少明细时返回空数组，沿用订单汇总名称
+     */
+    private function orderProducts(array $raw): array
+    {
+        $products = [];
+        $source = is_array($raw['products'] ?? null) ? $raw['products'] : [];
+        foreach ($source as $product) {
+            if (!is_array($product) || !is_string($product['name'] ?? null)) {
+                continue;
+            }
+            $name = trim($product['name']);
+            if ($name === '') {
+                continue;
+            }
+            $products[] = [
+                'name' => $name,
+                'url' => is_string($product['url'] ?? null) ? trim($product['url']) : '',
+                'quantity' => max(1, (int) ($product['quantity'] ?? 1)),
+            ];
+        }
+
+        return $products;
+    }
+
+    /**
      * 合并历史人工调整并按订单日期补算美元金额；本地调整优先。
+     *
+     * @param  Order  $order  来源订单模型
+     * @param  array  $overrides  原平台保存的订单人工调整映射
+     * @param  array  $rates  币种换算汇率数据
+     * @return array 叠加人工调整与美元换算后的统一普通订单字段
      */
     private function normalizeOrder(
         Order $order,
@@ -255,6 +334,10 @@ class OrderManagementService
     ): array {
         $row = Order::present($order);
         $raw = $order->raw ?? [];
+        $products = $this->orderProducts($raw);
+        if ($products !== []) {
+            $row['products'] = $products;
+        }
         $row['sourceIdentity'] = $order->client_order_id
             ? 'client:' . $order->client_order_id
             : 'order:' . $order->order_id;
@@ -279,6 +362,8 @@ class OrderManagementService
         }
         $row['staffAllocations'] = self::allocations($raw, $row['staff'] ?? '');
         $row['primaryStaffCode'] = strtoupper(trim($raw['primaryStaffCode'] ?? ($override?->primary_staff_code ?: preg_split('/[,，\/]+/', $row['staff'] ?? '')[0] ?? '')));
+        // 原平台归类下方展示所有参与客服；主客服仍由 primaryStaffCode 单独标识。
+        $row['staff'] = implode(', ', array_column($row['staffAllocations'], 'staffCode'));
         $row['date'] = CarbonImmutable::parse($row['createTime'])
             ->setTimezone('Asia/Shanghai')
             ->toDateString();
@@ -297,6 +382,11 @@ class OrderManagementService
 
     /**
      * 对列表、统计和导出使用相同的测试订单隔离及筛选规则。
+     *
+     * @param  array  $row  订单管理单条记录
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 scope、orderStatus、classification、influencerExact、customerService、staffExact
+     * @param  bool  $allowTesting  是否允许纳入测试订单
+     * @return bool 订单满足全部筛选条件及测试订单访问限制时为 true
      */
     private function matchesFilters(
         array $row,

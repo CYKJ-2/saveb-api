@@ -26,6 +26,8 @@ class ProcurementRemovedOrder extends BaseModel
 
     /**
      * 定义字段类型转换。
+     *
+     * @return array<string, string> 数据库字段名到 Eloquent 转换类型的映射
      */
     protected function casts(): array
     {

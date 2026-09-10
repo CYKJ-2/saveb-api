@@ -86,7 +86,7 @@ class Order extends BaseModel
     /**
      * 字段类型转换。
      *
-     * @return array<string, string>
+     * @return array<string, string> 数据库字段名到 Eloquent 转换类型的映射
      */
     protected function casts(): array
     {
@@ -114,6 +114,8 @@ class Order extends BaseModel
      *
      * 不在数据库 DEFAULT 里完成 entity_uuid 生成是为了在应用层可控，
      * 同时也避免 PostgreSQL 在某些环境未安装 pgcrypto 时迁移失败。
+     *
+     * @return void 无返回值；副作用见方法说明
      */
     protected static function booted(): void
     {
@@ -156,7 +158,7 @@ class Order extends BaseModel
      *   - date             : 与 createTime 同源，保留供前端 date 字段直接索引
      *
      * @param  \App\Models\Order  $order  订单模型
-     * @return array                     输出数组
+     * @return array 输出数组
      */
     public static function present(Order $order): array
     {

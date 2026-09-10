@@ -15,7 +15,7 @@ class OrderDao extends BaseDao
     /**
      * 返回当前 DAO 关联的模型类。
      *
-     * @return class-string<Order>
+     * @return class-string<Order> 模型类名
      */
     protected function model(): string
     {
@@ -26,7 +26,7 @@ class OrderDao extends BaseDao
      * 按 order_id 查找订单（系统订单号，全局唯一）。
      *
      * @param  string  $orderId  系统订单号
-     * @return Order|null        不存在时返回 null
+     * @return Order|null 不存在时返回 null
      */
     public function findByOrderId(string $orderId): ?Order
     {
@@ -40,7 +40,7 @@ class OrderDao extends BaseDao
      * 按 client_order_id 查找订单。
      *
      * @param  string  $clientOrderId  客户端订单号
-     * @return Order|null              不存在时返回 null
+     * @return Order|null 不存在时返回 null
      */
     public function findByClientOrderId(string $clientOrderId): ?Order
     {
@@ -54,7 +54,7 @@ class OrderDao extends BaseDao
      * 按 paypal_order_id 查找订单。
      *
      * @param  string  $paypalOrderId  PayPal 订单号
-     * @return Order|null              不存在时返回 null
+     * @return Order|null 不存在时返回 null
      */
     public function findByPaypalOrderId(string $paypalOrderId): ?Order
     {
@@ -68,7 +68,7 @@ class OrderDao extends BaseDao
      * 按 entity_uuid 查找订单（跨系统对账用）。
      *
      * @param  string  $uuid  UUID 字符串
-     * @return Order|null     不存在时返回 null
+     * @return Order|null 不存在时返回 null
      */
     public function findByEntityUuid(string $uuid): ?Order
     {
@@ -93,22 +93,12 @@ class OrderDao extends BaseDao
      *
      * 返回 LengthAwarePaginator，分页参数由调用方控制。
      *
-     * @param  array{
-     *   orderId?: ?string,
-     *   paypalOrderId?: ?string,
-     *   customerName?: ?string,
-     *   customerService?: ?string,
-     *   paypalAccount?: ?string,
-     *   website?: ?string,
-     *   orderStatus?: ?string,
-     *   startDate?: ?string,
-     *   endDate?: ?string,
-     * }  $criteria  筛选条件，全部可选
-     * @param  int       $perPage   每页条数
-     * @param  int       $page      1-based 页码
-     * @param  string    $sortBy    排序列，默认 order_time
-     * @param  string    $sortDir   asc | desc，默认 desc
-     * @return LengthAwarePaginator<Order>
+     * @param  array{ orderId?: ?string, paypalOrderId?: ?string, customerName?: ?string, customerService?: ?string, paypalAccount?: ?string, website?: ?string, orderStatus?: ?string, startDate?: ?string, endDate?: ?string, }  $criteria  筛选条件，全部可选
+     * @param  int  $perPage  每页条数
+     * @param  int  $page  1-based 页码
+     * @param  string  $sortBy  排序列，默认 order_time
+     * @param  string  $sortDir  asc | desc，默认 desc
+     * @return LengthAwarePaginator<Order> 订单分页器，包含当前页记录、总条数和分页信息
      */
     public function search(
         array $criteria,
@@ -192,7 +182,7 @@ class OrderDao extends BaseDao
      * 按主键加载订单（含预加载关系）。
      *
      * @param  int  $id  订单主键 ID
-     * @return Order|null
+     * @return Order|null 订单模型实例；未找到时返回 null
      */
     public function findFull(int $id): ?Order
     {

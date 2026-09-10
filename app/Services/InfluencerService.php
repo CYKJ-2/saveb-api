@@ -12,7 +12,12 @@ use Illuminate\Support\Facades\DB;
  */
 class InfluencerService
 {
-    /** 网站列表分页，目录概要按全量计算，搜索不会改变来源数量。 */
+    /**
+     * 网站列表分页，目录概要按全量计算，搜索不会改变来源数量。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 keyword
+     * @return array 当前页记录及分页信息；汇总字段按业务方法计算
+     */
     public function directoryPage(array $filters): array
     {
         $all = $this->directory();
@@ -29,13 +34,22 @@ class InfluencerService
         ];
     }
 
-    /** 新增网站只需要达人名称选项，不加载整个网站目录。 */
+    /**
+     * 新增网站只需要达人名称选项，不加载整个网站目录。
+     *
+     * @return array 可用于网站绑定的达人名称列表
+     */
     public function options(): array
     {
         return array_map(fn ($group) => ['name' => $group['name']], $this->directory());
     }
 
-    /** 排行榜服务端分页，图表独立保留前 30 名及完整汇总。 */
+    /**
+     * 排行榜服务端分页，图表独立保留前 30 名及完整汇总。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 month
+     * @return array 当前页记录及分页信息；汇总字段按业务方法计算
+     */
     public function reportPage(array $filters): array
     {
         $report = $this->report($filters['month']);
@@ -46,12 +60,25 @@ class InfluencerService
         return $page + $report;
     }
 
-    /** 兼容销售列表入口也按请求分页，避免绕过月报分页拉取全量排行。 */
+    /**
+     * 兼容销售列表入口也按请求分页，避免绕过月报分页拉取全量排行。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件
+     * @return array 当前页记录及分页信息；汇总字段按业务方法计算
+     */
     public function salesPage(array $filters): array
     {
         return \App\Common\PageResult::fromRows($this->sales($filters), $filters);
     }
 
+    /**
+     * 注入 达人与网站处理所需的依赖。
+     *
+     * @param  InfluencerDao  $influencerDao  达人与网站数据访问对象
+     * @param  OrderManagementService  $orderManagementService  订单管理业务服务
+     * @param  BusinessOperationLogDao  $businessOperationLogDao  业务操作日志数据访问对象
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(
         private InfluencerDao $influencerDao,
         private OrderManagementService $orderManagementService,
@@ -60,7 +87,13 @@ class InfluencerService
     }
 
     /**
-     * 查询目录。
+     * 查询达人与网站目录。
+     *
+     * @param  string  $keyword  列表关键字；空字符串表示不按关键字过滤；默认 ''
+     * @return array 匹配关键字的达人网站目录记录
+     * @see InfluencerDao::rules()
+     * @see InfluencerDao::domains()
+     * @see InfluencerDao::profiles()
      */
     public function directory(string $keyword = ''): array
     {
@@ -104,7 +137,13 @@ class InfluencerService
         return array_values($groups);
     }
 
-    /** 月报同时提供汇总、完整排行榜和真实数据覆盖时间。 */
+    /**
+     * 月报同时提供汇总、完整排行榜和真实数据覆盖时间。
+     *
+     * @param  string  $month  统计月份，格式 Y-m
+     * @return array 达人与网站结果数组；返回字段：month、rows、totals、meta
+     * @see InfluencerDao::latestOrderTimes()
+     */
     public function report(string $month): array
     {
         $date = CarbonImmutable::createFromFormat('!Y-m', $month, 'Asia/Shanghai');
@@ -124,6 +163,12 @@ class InfluencerService
 
     /**
      * 汇总销售业绩。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件
+     * @return array 指定月份的达人销售汇总与排行数据
+     * @see InfluencerDao::profiles()
+     * @see InfluencerDao::rules()
+     * @see OrderManagementService::rows()
      */
     public function sales(array $filters): array
     {
@@ -174,7 +219,16 @@ class InfluencerService
     }
 
     /**
-     * 保存记录。
+     * 保存达人与网站及其关联数据。
+     *
+     * @param  array  $data  经过 Controller 校验的业务字段；本方法读取 domain、influencer
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @return array 保存后的达人网站归属记录
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     * @see InfluencerDao::domain()
+     * @see InfluencerDao::rules()
+     * @see InfluencerDao::saveDomain()
+     * @see BusinessOperationLogDao::record()
      */
     public function save(array $data, int $actor): array
     {
@@ -199,7 +253,12 @@ class InfluencerService
         });
     }
 
-    /** 与原页面统一去除协议、www、路径、查询参数和末尾句点。 */
+    /**
+     * 与原页面统一去除协议、www、路径、查询参数和末尾句点。
+     *
+     * @param  string  $value  待归一化的原始值
+     * @return string 不含协议、www 和路径的有效域名；无效输入返回空字符串
+     */
     private function normalizeDomain(string $value): string
     {
         $domain = preg_replace('#^https?://#', '', strtolower(trim($value)));

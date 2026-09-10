@@ -30,6 +30,7 @@ class OrderService
      * 构造函数，注入订单 DAO。
      *
      * @param  OrderDao  $orderDao  订单数据访问对象
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly OrderDao $orderDao)
     {
@@ -46,18 +47,12 @@ class OrderService
      * 字段名沿用 saveb-erp 的 camelCase 命名，便于前端直接渲染。
      *
      * @param  array<string,mixed>  $criteria  筛选条件（字段名见 OrderDao::search）
-     * @param  int                  $page      1-based 页码
-     * @param  int                  $perPage   每页条数
-     * @param  string               $sortBy    排序列
-     * @param  string               $sortDir   asc | desc
-     * @return array{
-     *   list: array<int,array<string,mixed>>,
-     *   total: int,
-     *   page: int,
-     *   per_page: int,
-     *   last_page: int,
-     *   criteria: array<string,mixed>
-     * }
+     * @param  int  $page  1-based 页码
+     * @param  int  $perPage  每页条数
+     * @param  string  $sortBy  排序列
+     * @param  string  $sortDir  asc | desc
+     * @return array{ list: array<int,array<string,mixed>>, total: int, page: int, per_page: int, last_page: int, criteria: array<string,mixed> } 订单结果数组；返回字段：list、total、page、per_page、last_page、criteria
+     * @see OrderDao::search()
      */
     public function search(
         array $criteria,
@@ -88,8 +83,9 @@ class OrderService
      * 按主键 ID 获取单个订单（含完整字段）。
      *
      * @param  int  $id  订单主键 ID
-     * @return array    Order::present 序列化结果
+     * @return array Order::present 序列化结果
      * @throws SystemException  订单不存在时抛 404 + CODE_ORDER_NOT_FOUND
+     * @see OrderDao::findFull()
      */
     public function find(int $id): array
     {
@@ -108,8 +104,9 @@ class OrderService
      *   - 若提供 client_order_id / paypal_order_id / order_id，必须全局唯一
      *
      * @param  array<string,mixed>  $data  字段（参见 OrderController::store）
-     * @return array                       Order::present 序列化结果
+     * @return array Order::present 序列化结果
      * @throws SystemException  唯一性冲突时抛 422 + CODE_ORDER_ALREADY_EXISTS
+     * @see OrderDao::create()
      */
     public function create(array $data): array
     {
@@ -126,10 +123,12 @@ class OrderService
      *
      * 支持乐观锁：请求体提供 version 时必须与当前一致，否则抛 409。
      *
-     * @param  int                  $id    订单主键 ID
+     * @param  int  $id  订单主键 ID
      * @param  array<string,mixed>  $data  待更新字段（可选 version）
-     * @return array                       Order::present 序列化结果
+     * @return array Order::present 序列化结果
      * @throws SystemException  订单不存在 / version 冲突 / 唯一性冲突
+     * @see OrderDao::findFull()
+     * @see OrderDao::updateWhere()
      */
     public function update(int $id, array $data): array
     {
@@ -160,7 +159,10 @@ class OrderService
      * 软删除订单。
      *
      * @param  int  $id  订单主键 ID
+     * @return void 无返回值；副作用见方法说明
      * @throws SystemException  订单不存在
+     * @see OrderDao::findFull()
+     * @see OrderDao::deleteWhere()
      */
     public function delete(int $id): void
     {
@@ -175,7 +177,7 @@ class OrderService
      * 统计订单总数（可选按状态过滤）。
      *
      * @param  string|null  $status  订单状态过滤
-     * @return int                   订单总数
+     * @return int 订单总数
      */
     public function count(?string $status = null): int
     {
@@ -191,8 +193,8 @@ class OrderService
     /**
      * 规范化筛选条件：trim + 空串 → null。
      *
-     * @param  array<string,mixed>  $criteria
-     * @return array<string,mixed>
+     * @param  array<string,mixed>  $criteria  订单查询条件
+     * @return array<string,mixed> 去除首尾空白并将空字符串转换为 null 的订单筛选条件
      */
     private function normalizeCriteria(array $criteria): array
     {
@@ -217,9 +219,9 @@ class OrderService
      *   - 自动设置 currency 默认 USD
      *   - 默认 items_count=1
      *
-     * @param  array<string,mixed>  $data   入参
-     * @param  Order|null           $order  当前订单（更新时传入，用于字段合并）
-     * @return array<string,mixed>          可写入字段
+     * @param  array<string,mixed>  $data  入参
+     * @param  Order|null  $order  当前订单（更新时传入，用于字段合并）
+     * @return array<string,mixed> 可写入字段
      */
     private function preparePayload(array $data, ?Order $order): array
     {
@@ -288,7 +290,8 @@ class OrderService
      * 唯一性预检：order_id / client_order_id / paypal_order_id 三者分别独立判断。
      *
      * @param  array<string,mixed>  $payload  待写入字段
-     * @param  Order|null           $exclude  排除的订单（更新自身时传入）
+     * @param  Order|null  $exclude  排除的订单（更新自身时传入）
+     * @return void 无返回值；副作用见方法说明
      * @throws SystemException  任意字段重复时抛 422
      */
     private function assertUniqueIdentifiers(array $payload, ?Order $exclude): void

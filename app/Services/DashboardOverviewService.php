@@ -24,6 +24,14 @@ class DashboardOverviewService
         'spreadsheets',
     ];
 
+    /**
+     * 注入 首页概览处理所需的依赖。
+     *
+     * @param  DashboardOverviewDao  $dashboardOverviewDao  首页概览数据访问对象
+     * @param  OrderManagementService  $orderManagementService  订单管理业务服务
+     * @param  OrderStatisticsService  $orderStatisticsService  订单统计业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(
         private DashboardOverviewDao $dashboardOverviewDao,
         private OrderManagementService $orderManagementService,
@@ -32,7 +40,16 @@ class DashboardOverviewService
     }
 
     /**
-     * 读取详情。
+     * 读取首页概览详情或指定模块数据。
+     *
+     * @param  string  $module  要查询的统计或业务模块标识
+     * @param  array  $range  统计日期范围，包含 startDate、endDate，格式 Y-m-d；本方法读取 startDate、endDate
+     * @param  string  $granularity  趋势统计粒度，day 按日、month 按月；默认 'day'
+     * @return array{range: array, timezone: string, generatedAt: string, data: array} 实际统计范围、时区、生成时间与当前模块数据
+     * @see DashboardOverviewDao::exchangeRates()
+     * @see DashboardOverviewDao::dataStatus()
+     * @see DashboardOverviewDao::spreadsheets()
+     * @see OrderStatisticsService::statistics()
      */
     public function show(
         string $module,
@@ -70,6 +87,9 @@ class DashboardOverviewService
 
     /**
      * 汇总完成订单、件数和美元金额。
+     *
+     * @param  array  $rows  首页概览记录列表
+     * @return array 完成订单数、商品件数、美元销售额和缺失汇率计数
      */
     private function totals(array $rows): array
     {
@@ -102,6 +122,10 @@ class DashboardOverviewService
 
     /**
      * 计算当前区间及上一等长区间指标。
+     *
+     * @param  array  $range  统计日期范围，包含 startDate、endDate，格式 Y-m-d；本方法读取 startDate、endDate
+     * @return array 当前日期区间指标、上一等长区间指标及变化数据
+     * @see OrderManagementService::rows()
      */
     private function overview(array $range): array
     {
@@ -134,6 +158,10 @@ class DashboardOverviewService
 
     /**
      * 提取最近订单并限制输出字段。
+     *
+     * @param  array  $range  统计日期范围，包含 startDate、endDate，格式 Y-m-d
+     * @return array 首页概览结果数组；返回字段：list、total
+     * @see OrderManagementService::rows()
      */
     private function recent(array $range): array
     {
@@ -161,6 +189,12 @@ class DashboardOverviewService
 
     /**
      * 汇总查询期间内的收款和提现。
+     *
+     * @param  array  $range  统计日期范围，包含 startDate、endDate，格式 Y-m-d
+     * @return array 首页概览结果数组；返回字段：list、activeAccounts、periodAccounts、received、withdrawn
+     * @see OrderManagementService::rows()
+     * @see DashboardOverviewDao::withdrawals()
+     * @see DashboardOverviewDao::paypalAccounts()
      */
     private function paypal(array $range): array
     {

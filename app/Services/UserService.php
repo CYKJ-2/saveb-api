@@ -28,6 +28,7 @@ class UserService
      * 构造函数，注入用户 DAO。
      *
      * @param  UserDao  $userDao  用户数据访问对象
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly UserDao $userDao)
     {
@@ -38,10 +39,13 @@ class UserService
      *
      * 注意：select 中不能包含 `role`，该列已下线，role 信息通过关联 role / roles 获取。
      *
-     * @param  int   $page        1-based 页码，默认 1
-     * @param  int   $perPage     每页条数，默认 15
-     * @param  bool  $activeOnly  是否仅显示启用账户，默认 false
-     * @return LengthAwarePaginator<User>
+     * @param  int  $page  1-based 页码，默认 1
+     * @param  int  $perPage  每页条数，默认 15
+     * @param  bool|null  $active  启用状态筛选；null 表示不限制
+     * @param  string|null  $username  登录用户名
+     * @param  string|null  $displayName  用户显示名称筛选
+     * @return LengthAwarePaginator<User> 用户分页器，包含当前页记录、总条数和分页信息
+     * @see UserDao::paginateFiltered()
      */
     public function list(
         int $page = 1,
@@ -57,7 +61,7 @@ class UserService
      * 不分页，获取所有用户。用于小型数据集或导出场景。
      *
      * @param  bool  $activeOnly  是否仅显示启用账户，默认 false
-     * @return Collection<int, User>
+     * @return Collection<int, User> 用户查询或计算结果集合；无匹配时为空集合
      */
     public function all(bool $activeOnly = false): Collection
     {
@@ -97,7 +101,7 @@ class UserService
      * 按用户名（大小写不敏感）查找用户。
      *
      * @param  string  $username  登录用户名
-     * @return User|null          不存在时返回 null
+     * @return User|null 不存在时返回 null
      */
     public function findByUsername(string $username): ?User
     {
@@ -110,7 +114,7 @@ class UserService
      * 统计用户总数。
      *
      * @param  bool  $activeOnly  是否仅统计启用账户
-     * @return int               用户数量
+     * @return int 用户数量
      */
     public function count(bool $activeOnly = false): int
     {
@@ -126,8 +130,10 @@ class UserService
      * 创建新用户。username 必须全局唯一。
      *
      * @param  array  $data  字段（参见 UserController::store 的 schema）
-     * @return User         新建用户（含主角色与多角色关系）
+     * @return User 新建用户（含主角色与多角色关系）
      * @throws SystemException  username 重复时抛 422 + CODE_USER_ALREADY_EXISTS
+     * @see UserDao::usernameTaken()
+     * @see UserDao::create()
      */
     public function create(array $data): User
     {
@@ -155,10 +161,13 @@ class UserService
     /**
      * 更新已有用户。username/password/role_id/role_ids 等按需更新。
      *
-     * @param  int    $id    用户主键 ID
+     * @param  int  $id  用户主键 ID
      * @param  array  $data  待更新字段
-     * @return User         更新后的用户
+     * @return User 更新后的用户
      * @throws SystemException  用户不存在 / username 冲突
+     * @see UserDao::find()
+     * @see UserDao::usernameTaken()
+     * @see UserDao::updateWhere()
      */
     public function update(int $id, array $data): User
     {
@@ -216,7 +225,10 @@ class UserService
      * 软删除用户。不允许删除当前登录账户本身。
      *
      * @param  int  $id  用户主键 ID
+     * @return void 无返回值；副作用见方法说明
      * @throws SystemException  用户不存在 / 试图删除自己时
+     * @see UserDao::find()
+     * @see UserDao::deleteWhere()
      */
     public function delete(int $id): void
     {
@@ -235,9 +247,12 @@ class UserService
     /**
      * 修改用户密码，同时把 must_change_password 置为 false。
      *
-     * @param  int     $id          用户主键 ID
-     * @param  string  $newPassword 新密码（明文，自动 bcrypt）
+     * @param  int  $id  用户主键 ID
+     * @param  string  $newPassword  新密码（明文，自动 bcrypt）
+     * @return void 无返回值；副作用见方法说明
      * @throws SystemException  用户不存在
+     * @see UserDao::find()
+     * @see UserDao::updateWhere()
      */
     public function changePassword(int $id, string $newPassword): void
     {
@@ -258,8 +273,9 @@ class UserService
      * 获取指定用户的所有角色（user_roles pivot）。
      *
      * @param  int  $userId  用户主键 ID
-     * @return Collection<int, Role>
+     * @return Collection<int, Role> 用户查询或计算结果集合；无匹配时为空集合
      * @throws SystemException  用户不存在
+     * @see UserDao::find()
      */
     public function getUserRoles(int $userId): Collection
     {
@@ -276,9 +292,10 @@ class UserService
      *
      * 数据源：用户的所有角色 → 角色的所有权限节点（type=action 与 type=menu 都可）。
      *
-     * @param  int    $userId  用户主键 ID
-     * @return array  权限节点数组，每项包含 id/code/name/name_zh/action/type
+     * @param  int  $userId  用户主键 ID
+     * @return array 权限节点数组，每项包含 id/code/name/name_zh/action/type
      * @throws SystemException  用户不存在
+     * @see UserDao::find()
      */
     public function getUserPermissions(int $userId): array
     {

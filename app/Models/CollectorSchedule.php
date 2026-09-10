@@ -7,6 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 /** 每个来源账户的动态采集间隔，与采集器共享行锁。 */
 class CollectorSchedule extends Model
 {
+    /**
+     * 根据采集 schema 配置返回完整数据表名。
+     *
+     * @return string 包含 schema 前缀的数据表名
+     */
     public function getTable(): string
     {
         return config('collector.schema', 'collector') . '.schedules';

@@ -15,6 +15,9 @@ class ProcurementDao
 {
     /**
      * 同一来源订单的建单和移除共用事务锁，避免并发生成隐藏任务。
+     *
+     * @param  string  $sourceKey  来源订单唯一标识
+     * @return void 无返回值；副作用见方法说明
      */
     public function lockSource(string $sourceKey): void
     {
@@ -24,7 +27,7 @@ class ProcurementDao
     /**
      * 读取记录集合。
      *
-     * @return \Illuminate\Database\Eloquent\Collection<int, \App\Models\ProcurementTask>
+     * @return \Illuminate\Database\Eloquent\Collection<int, \App\Models\ProcurementTask> 采购任务查询或计算结果集合；无匹配时为空集合
      */
     public function all(): Collection
     {
@@ -35,6 +38,8 @@ class ProcurementDao
 
     /**
      * 读取已移除来源标识。
+     *
+     * @return array 已移出采购列表的来源订单标识列表
      */
     public function removed(): array
     {
@@ -43,6 +48,10 @@ class ProcurementDao
 
     /**
      * 加行锁读取记录。
+     *
+     * @param  int  $id  采购任务记录主键 ID
+     * @return ProcurementTask 采购任务模型实例
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException 指定业务记录不存在
      */
     public function lock(int $id): ProcurementTask
     {
@@ -53,7 +62,11 @@ class ProcurementDao
     }
 
     /**
-     * 保存记录。
+     * 保存采购任务及其关联数据。
+     *
+     * @param  ProcurementTask|null  $task  采购任务模型；null 表示不存在或尚未创建
+     * @param  array  $data  经过 Controller 校验的业务字段
+     * @return ProcurementTask|null 采购任务模型实例；未找到时返回 null
      */
     public function save(?ProcurementTask $task, array $data): ?ProcurementTask
     {
@@ -66,7 +79,10 @@ class ProcurementDao
     }
 
     /**
-     * 移除记录。
+     * 移除采购任务记录。
+     *
+     * @param  ProcurementTask  $task  采购任务模型
+     * @return void 无返回值；副作用见方法说明
      */
     public function remove(ProcurementTask $task): void
     {
@@ -75,6 +91,10 @@ class ProcurementDao
 
     /**
      * 记录已移除的来源订单。
+     *
+     * @param  string  $id  采购任务记录主键 ID
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @return void 无返回值；副作用见方法说明
      */
     public function hideOrder(string $id, int $actor): void
     {
@@ -87,6 +107,9 @@ class ProcurementDao
 
     /**
      * 将采购记录交接至仓库。
+     *
+     * @param  ProcurementTask  $task  采购任务模型
+     * @return void 无返回值；副作用见方法说明
      */
     public function handover(ProcurementTask $task): void
     {

@@ -26,6 +26,7 @@ class PermissionService
      * 构造函数，注入权限 DAO。
      *
      * @param  PermissionDao  $permissionDao  权限数据访问对象
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly PermissionDao $permissionDao)
     {
@@ -37,7 +38,8 @@ class PermissionService
      *
      * 典型用途：前端表单中的下拉选择 / 服务端构建树形结构的原始数据。
      *
-     * @return Collection<int, Permission>
+     * @return Collection<int, Permission> 权限节点查询或计算结果集合；无匹配时为空集合
+     * @see PermissionDao::listAll()
      */
     public function all(): Collection
     {
@@ -52,7 +54,8 @@ class PermissionService
      *
      * 端点：GET /api/permissions/tree（前端用于角色分配菜单等场景）。
      *
-     * @return Collection<int, Permission>  根节点集合（森林）
+     * @return Collection<int, Permission> 根节点集合（森林）
+     * @see PermissionDao::listAllAsTree()
      */
     public function tree(): Collection
     {
@@ -63,7 +66,8 @@ class PermissionService
      * 获取所有 action 节点，可按父菜单过滤。
      *
      * @param  int|null  $parentId  父菜单 ID；为 null 返回全部 action
-     * @return Collection<int, Permission>
+     * @return Collection<int, Permission> 权限节点查询或计算结果集合；无匹配时为空集合
+     * @see PermissionDao::listActions()
      */
     public function actions(?int $parentId = null): Collection
     {
@@ -74,8 +78,9 @@ class PermissionService
      * 按 ID 查找单个节点。节点不存在时抛 404。
      *
      * @param  int  $id  权限节点主键 ID
-     * @return Permission
+     * @return Permission 权限节点模型实例
      * @throws SystemException  节点不存在时
+     * @see PermissionDao::find()
      */
     public function find(int $id): Permission
     {
@@ -91,8 +96,9 @@ class PermissionService
      * 按 code 查找单个节点。节点不存在时抛 404。
      *
      * @param  string  $code  权限节点 code，全局唯一
-     * @return Permission
+     * @return Permission 权限节点模型实例
      * @throws SystemException  节点不存在时
+     * @see PermissionDao::findByCode()
      */
     public function findByCode(string $code): Permission
     {
@@ -112,27 +118,11 @@ class PermissionService
      * level 若未指定则按 parent.level + 1 自动推导，最深 3 级。
      * code 已存在时抛 422 + CODE_PERMISSION_ALREADY_EXISTS。
      *
-     * @param  array{
-     *   code: string,
-     *   name: string,
-     *   type?: string,
-     *   parent_id?: int,
-     *   name_zh?: string|null,
-     *   path?: string|null,
-     *   icon?: string|null,
-     *   component?: string|null,
-     *   action?: string,
-     *   resource?: string|null,
-     *   level?: int,
-     *   is_menu_visible?: bool,
-     *   hidden?: bool,
-     *   sort?: int,
-     *   status?: int,
-     *   description?: string|null,
-     *   description_zh?: string|null,
-     * } $data  创建节点所需字段
-     * @return Permission  新创建的节点（含主键 ID）
+     * @param  array{ code: string, name: string, type?: string, parent_id?: int, name_zh?: string|null, path?: string|null, icon?: string|null, component?: string|null, action?: string, resource?: string|null, level?: int, is_menu_visible?: bool, hidden?: bool, sort?: int, status?: int, description?: string|null, description_zh?: string|null, }  $data  创建节点所需字段
+     * @return Permission 新创建的节点（含主键 ID）
      * @throws SystemException  code 重复或父节点不存在
+     * @see PermissionDao::findByCode()
+     * @see PermissionDao::create()
      */
     public function create(array $data): Permission
     {
@@ -176,10 +166,13 @@ class PermissionService
      * status=0 时级联禁用所有子孙节点（递归整棵子树）；status=1 时不级联
      * 启用（启用是显式操作，避免误操作把已单独禁用的子节点一并打开）。
      *
-     * @param  int    $id    节点主键 ID
+     * @param  int  $id  节点主键 ID
      * @param  array  $data  待更新字段（与 create 同 schema）
-     * @return Permission    更新后的节点
+     * @return Permission 更新后的节点
      * @throws SystemException  节点不存在
+     * @see PermissionDao::find()
+     * @see PermissionDao::subtreeIds()
+     * @see PermissionDao::updateWhere()
      */
     public function update(int $id, array $data): Permission
     {
@@ -249,8 +242,9 @@ class PermissionService
      *
      * 不级联启用：启用是显式动作，操作者应当单独勾选要打开的子节点。
      *
-     * @param  int  $rootId  根节点 ID（自身已在调用前更新；这里只处理子孙）
-     * @return int           被禁用的子孙节点数量
+     * @param  int  $rootId  待停用的根节点 ID，更新范围包含自身和全部后代
+     * @return int 根节点及后代中受更新影响的记录条数
+     * @see PermissionDao::disableSubtree()
      */
     public function cascadeDisableDescendants(int $rootId): int
     {
@@ -258,10 +252,13 @@ class PermissionService
     }
 
     /**
-     * 删除权限节点。子节点与 role_permissions 关联由 DB 外键级联处理。
+     * 软删除权限节点及全部后代；保留授权关联，由有效权限计算排除已删除节点。
      *
      * @param  int  $id  节点主键 ID
+     * @return void 无返回值；副作用见方法说明
      * @throws SystemException  节点不存在
+     * @see PermissionDao::find()
+     * @see PermissionDao::deleteSubtree()
      */
     public function delete(int $id): void
     {
@@ -269,7 +266,7 @@ class PermissionService
         if (!$permission) {
             throw new SystemException(RespDef::CODE_PERMISSION_NOT_FOUND, RespDef::MSG_PERMISSION_NOT_FOUND, 404);
         }
-        // FK 级联处理 role_permissions pivot + children 删除
+        // 通过 DAO 显式软删除整棵子树，不能依赖物理删除的外键级联。
         $this->permissionDao->deleteSubtree($id);
     }
 
@@ -280,10 +277,11 @@ class PermissionService
      *   - menu 子节点 → parent.level + 1，上限 3
      *   - action 节点 → 继承父级 level
      *
-     * @param  int     $parentId   父节点 ID（0=顶级）
-     * @param  int     $requested  调用方显式指定的 level（不强制使用）
-     * @param  string  $type       节点类型：menu | action
-     * @return int                 推导后的 level
+     * @param  int  $parentId  父节点 ID（0=顶级）
+     * @param  int  $requested  调用方显式指定的 level（不强制使用）
+     * @param  string  $type  节点类型：menu | action
+     * @return int 推导后的 level
+     * @see PermissionDao::find()
      */
     private function resolveLevel(
         int $parentId,

@@ -29,6 +29,7 @@ class UserController extends BaseController
      * 构造函数，注入用户服务层。
      *
      * @param  UserService  $userService  用户业务服务
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly UserService $userService)
     {
@@ -42,8 +43,13 @@ class UserController extends BaseController
      *   - per_page  int   每页条数（最大 100），默认 20
      *   - active    bool  仅显示启用账户，默认 false
      *
+     * 请求字段（校验规则）：
+     * - username：'nullable|string'
+     * - display_name：'nullable|string'
+     *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       分页响应（data 为用户数组，meta 含分页信息）
+     * @return JsonResponse 分页响应（data 为用户数组，meta 含分页信息）
+     * @see UserService::list()
      */
     public function index(Request $request): JsonResponse
     {
@@ -79,7 +85,8 @@ class UserController extends BaseController
      *   - active  bool  仅显示启用账户，默认 false
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       data 为用户数组，meta.total 为实际数量
+     * @return JsonResponse data 为用户数组，meta.total 为实际数量
+     * @see UserService::all()
      */
     public function all(Request $request): JsonResponse
     {
@@ -95,8 +102,9 @@ class UserController extends BaseController
      * 获取用户详情（包含其所有角色）。
      * 不存在时返回 404。
      *
-     * @param  int          $id  用户主键 ID
-     * @return JsonResponse      单个用户对象
+     * @param  int  $id  用户主键 ID
+     * @return JsonResponse 单个用户对象
+     * @see UserService::find()
      */
     public function show(int $id): JsonResponse
     {
@@ -120,7 +128,8 @@ class UserController extends BaseController
      *   - active  bool  仅统计启用账户，默认 false
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       { total: int, active_only: bool }
+     * @return JsonResponse { total: int, active_only: bool }
+     * @see UserService::count()
      */
     public function count(Request $request): JsonResponse
     {
@@ -148,7 +157,8 @@ class UserController extends BaseController
      *   must_change_password bool?   是否强制首次登录改密，默认 0
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       HTTP 201，新创建的用户（含角色）
+     * @return JsonResponse HTTP 201，新创建的用户（含角色）
+     * @see UserService::create()
      */
     public function store(Request $request): JsonResponse
     {
@@ -185,9 +195,10 @@ class UserController extends BaseController
      *   active               bool?
      *   must_change_password bool?
      *
-     * @param  int      $id      用户主键 ID
-     * @param  Request  $request HTTP 请求对象
-     * @return JsonResponse      更新后的用户（含角色）
+     * @param  int  $id  用户主键 ID
+     * @param  Request  $request  HTTP 请求对象
+     * @return JsonResponse 更新后的用户（含角色）
+     * @see UserService::update()
      */
     public function update(int $id, Request $request): JsonResponse
     {
@@ -216,8 +227,9 @@ class UserController extends BaseController
      * 用户不存在时抛 404 + CODE_USER_NOT_FOUND；
      * 尝试删除自己时抛 422（code -1203）。
      *
-     * @param  int          $id  用户主键 ID
-     * @return JsonResponse      {deleted: true}
+     * @param  int  $id  用户主键 ID
+     * @return JsonResponse {deleted: true}
+     * @see UserService::delete()
      */
     public function destroy(int $id): JsonResponse
     {
@@ -232,8 +244,9 @@ class UserController extends BaseController
      * 获取用户在所有角色下拥有的权限点（已去重）。
      * 注意：返回的是扁平权限点数组，不含树形结构。
      *
-     * @param  int          $id  用户主键 ID
-     * @return JsonResponse      权限点数组
+     * @param  int  $id  用户主键 ID
+     * @return JsonResponse 权限点数组
+     * @see UserService::getUserPermissions()
      */
     public function permissions(int $id): JsonResponse
     {
@@ -251,9 +264,13 @@ class UserController extends BaseController
      * 请求体：
      *   password  string  必填，新密码，至少 6 字符
      *
-     * @param  int      $id      用户主键 ID
-     * @param  Request  $request HTTP 请求对象
-     * @return JsonResponse      {message: 'Password changed successfully.'}
+     * 请求字段（校验规则）：
+     * - password：'required|string|min:6'
+     *
+     * @param  int  $id  用户主键 ID
+     * @param  Request  $request  HTTP 请求对象
+     * @return JsonResponse {message: 'Password changed successfully.'}
+     * @see UserService::changePassword()
      */
     public function changePassword(int $id, Request $request): JsonResponse
     {
@@ -264,11 +281,12 @@ class UserController extends BaseController
     }
 
     /**
-     * 将 User 模型序列化为 API 输出格式。
+     * 校验角色分配权限，将兼容主角色合并到 role_ids 后移除 role_id。
      *
-     * @param  \App\Models\User  $user           用户模型
-     * @param  bool              $includeRoles   是否附带多角色列表
-     * @return array                             输出数组
+     * @param  Request  $request  当前 HTTP 请求；查询或表单参数由本方法校验，登录上下文由认证中间件注入
+     * @param  array  $data  经过 Controller 校验的业务字段；本方法读取 role_ids、role_id；按引用原地更新
+     * @return void 原地规范化角色字段；未传角色字段时直接返回
+     * @throws \App\Exceptions\SystemException 当前用户没有分配角色权限
      */
     private function guardRoleFields(Request $request, array &$data): void
     {
@@ -288,6 +306,13 @@ class UserController extends BaseController
         unset($data['role_id']);
     }
 
+    /**
+     * 将用户模型转换为列表或详情字段，按需附带角色。
+     *
+     * @param  mixed  $user  用户模型
+     * @param  bool  $includeRoles  是否同时输出角色信息；默认 false
+     * @return array 用户公开字段；includeRoles 为 true 时附带角色信息
+     */
     private function presentUser($user, bool $includeRoles = false): array
     {
         // 主角色（users.role_id）—— 仅在关系已预加载时取值，

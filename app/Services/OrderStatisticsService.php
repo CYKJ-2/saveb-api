@@ -9,18 +9,30 @@ use Carbon\CarbonImmutable;
  */
 class OrderStatisticsService
 {
+    /**
+     * 注入 订单统计处理所需的依赖。
+     *
+     * @param  OrderManagementService  $orderManagementService  订单管理业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private OrderManagementService $orderManagementService)
     {
     }
 
     /**
      * 按统计模块汇总数据。
+     *
+     * @param  string  $module  要查询的统计或业务模块标识
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 orderStatus、scope、granularity
+     * @return array 订单统计结果数组；返回字段：list、totals
+     * @see OrderManagementService::rows()
      */
     public function statistics(string $module, array $filters): array
     {
         $filters['orderStatus'] = 'completed';
         $filters['scope'] = 'normal';
-        $rows = $this->orderManagementService->rows($filters);
+        // 统计只使用订单件数与汇总名称，不读取各商品的链接和原始明细。
+        $rows = $this->orderManagementService->rows($filters + ['_withProducts' => false]);
         $total = [
             'orders' => 0,
             'items' => 0,
@@ -28,6 +40,20 @@ class OrderStatisticsService
             'missingRates' => 0,
         ];
         $groups = [];
+        // 所选日期没有成交时仍展示完整分类，避免 Invoice 等零销售分类消失。
+        if ($module === 'categories') {
+            foreach (array_keys(OrderManagementService::CATEGORIES) as $category) {
+                $groups[$category] = [
+                    'key' => $category,
+                    'orders' => 0,
+                    'items' => 0,
+                    'amountUsd' => 0,
+                    'amountOriginal' => 0,
+                    'series' => [],
+                    'orderSeries' => [],
+                ];
+            }
+        }
         foreach ($rows as $row) {
             // 原首页总览和币种面板不含 Invoice，分类与趋势统计仍包含 Invoice。
             if (in_array($module, ['overview', 'currencies'], true) && $row['classification'] === 'invoice') {
@@ -77,6 +103,10 @@ class OrderStatisticsService
 
     /**
      * 线下订单按客服分摊比例累计单数、件数和美元金额。
+     *
+     * @param  array  $groups  按统计维度索引的累计数据；按引用原地更新
+     * @param  array  $row  订单统计单条记录
+     * @return void 无返回值；副作用见方法说明
      */
     private function accumulateStaff(array &$groups, array $row): void
     {
@@ -97,6 +127,11 @@ class OrderStatisticsService
 
     /**
      * 按统计维度累计金额，并保留分类序列供趋势图使用。
+     *
+     * @param  array  $groups  按统计维度索引的累计数据；按引用原地更新
+     * @param  string|int|null  $key  分组键或状态存储键
+     * @param  array  $row  订单统计单条记录
+     * @return void 无返回值；副作用见方法说明
      */
     private function accumulateGroup(
         array &$groups,
@@ -123,6 +158,10 @@ class OrderStatisticsService
 
     /**
      * 补齐无订单的日期或月份，让趋势图的时间轴连续。
+     *
+     * @param  array  $groups  按统计维度索引的累计数据
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 startDate、endDate、granularity
+     * @return array 补齐无订单日期或月份后的连续趋势分组
      */
     private function fillTrendPeriods(array $groups, array $filters): array
     {
@@ -151,6 +190,10 @@ class OrderStatisticsService
 
     /**
      * 汇总完成后统一舍入；占比始终使用当前模块的总销售额。
+     *
+     * @param  array  $groups  按统计维度索引的累计数据
+     * @param  array  $total  当前范围的汇总指标
+     * @return array 已舍入金额并计算销售占比的统计分组列表
      */
     private function presentGroups(array $groups, array $total): array
     {

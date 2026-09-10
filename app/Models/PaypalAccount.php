@@ -31,6 +31,8 @@ class PaypalAccount extends BaseModel
 
     /**
      * 定义字段类型转换。
+     *
+     * @return array<string, string> 数据库字段名到 Eloquent 转换类型的映射
      */
     protected function casts(): array
     {
@@ -44,7 +46,7 @@ class PaypalAccount extends BaseModel
     /**
      * 关联余额登记。
      *
-     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\PaypalBalanceEntry, $this>
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\PaypalBalanceEntry, $this> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function balances(): HasMany
     {
@@ -57,7 +59,7 @@ class PaypalAccount extends BaseModel
     /**
      * 关联审核记录。
      *
-     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\PaypalReview, $this>
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\PaypalReview, $this> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function reviews(): HasMany
     {
@@ -70,7 +72,7 @@ class PaypalAccount extends BaseModel
     /**
      * 关联提现记录。
      *
-     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\PaypalWithdrawal, $this>
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\PaypalWithdrawal, $this> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function withdrawals(): HasMany
     {

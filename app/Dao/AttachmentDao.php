@@ -11,14 +11,23 @@ use App\Models\InvoiceOrder;
  */
 class AttachmentDao
 {
-    /** 批量读取订单详情所需附件，避免每个商品单独查询数据库。 */
+    /**
+     * 批量读取订单详情所需附件，避免每个商品单独查询数据库。
+     *
+     * @param  array  $ids  附件主键 ID 列表
+     * @return \Illuminate\Database\Eloquent\Collection 附件查询或计算结果集合；无匹配时为空集合
+     */
     public function findMany(array $ids): \Illuminate\Database\Eloquent\Collection
     {
         return Attachment::whereIn('id', array_unique(array_filter($ids)))->get()->keyBy('id');
     }
 
     /**
-     * 按标识查询记录。
+     * 按主键读取附件详情。
+     *
+     * @param  int  $id  附件记录主键 ID
+     * @return Attachment 附件模型实例
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException 指定业务记录不存在
      */
     public function find(int $id): Attachment
     {
@@ -26,7 +35,10 @@ class AttachmentDao
     }
 
     /**
-     * 创建记录。
+     * 创建附件记录。
+     *
+     * @param  array  $data  经过 Controller 校验的业务字段
+     * @return Attachment 附件模型实例
      */
     public function create(array $data): Attachment
     {
@@ -35,6 +47,9 @@ class AttachmentDao
 
     /**
      * 按附件 ID 顺序加锁，避免并发绑定同一附件。
+     *
+     * @param  array  $ids  附件主键 ID 列表
+     * @return void 无返回值；副作用见方法说明
      */
     public function lockMany(array $ids): void
     {
@@ -46,6 +61,9 @@ class AttachmentDao
 
     /**
      * 检查附件是否仍被有效 Invoice 或商品明细引用。
+     *
+     * @param  Attachment  $attachment  附件模型
+     * @return bool 附件仍由有效 Invoice 或其商品引用时为 true
      */
     public function bound(Attachment $attachment): bool
     {
@@ -65,6 +83,11 @@ class AttachmentDao
 
     /**
      * 更新附件所属 Invoice 和用途。
+     *
+     * @param  Attachment  $attachment  附件模型
+     * @param  string  $type  附件用途，取值须与绑定时的 entity_type 一致
+     * @param  int  $invoice  目标 Invoice 订单主键 ID
+     * @return void 无返回值；副作用见方法说明
      */
     public function bind(
         Attachment $attachment,

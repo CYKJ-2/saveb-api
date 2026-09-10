@@ -47,6 +47,8 @@ class InvoiceOrder extends BaseModel
 
     /**
      * 定义字段类型转换。
+     *
+     * @return array<string, string> 数据库字段名到 Eloquent 转换类型的映射
      */
     protected function casts(): array
     {
@@ -56,7 +58,7 @@ class InvoiceOrder extends BaseModel
     /**
      * 关联商品明细。
      *
-     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\InvoiceItem, $this>
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\InvoiceItem, $this> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function items(): HasMany
     {
@@ -66,7 +68,7 @@ class InvoiceOrder extends BaseModel
     /**
      * 关联客服分摊。
      *
-     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\InvoiceStaffAllocation, $this>
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\InvoiceStaffAllocation, $this> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function allocations(): HasMany
     {

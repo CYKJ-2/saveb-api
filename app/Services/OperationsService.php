@@ -18,19 +18,34 @@ class OperationsService
         'finance' => ['财务部', 'Finance'],
     ];
 
+    /**
+     * 注入 在线表格处理所需的依赖。
+     *
+     * @param  OperationsDao  $operationsDao  在线表格数据访问对象
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private OperationsDao $operationsDao)
     {
     }
 
     /**
-     * 查询目录。
+     * 查询在线表格目录。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件
+     * @return array 线上表格目录的当前页及部门汇总信息
      */
     public function directory(array $filters): array
     {
         return $this->report($filters)['rows'];
     }
 
-    /** 原目录固定展示六个部门（含空部门），数量不受关键词过滤影响。 */
+    /**
+     * 原目录固定展示六个部门（含空部门），数量不受关键词过滤影响。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 keyword、department
+     * @return array 在线表格结果数组；返回字段：rows、departments、total、matched
+     * @see OperationsDao::all()
+     */
     public function report(array $filters): array
     {
         $rows = $this->operationsDao->all()->filter(function ($row) {

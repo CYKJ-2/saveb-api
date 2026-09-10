@@ -13,7 +13,7 @@ class OperationsDao
     /**
      * 读取记录集合。
      *
-     * @return \Illuminate\Database\Eloquent\Collection<int, \App\Models\OnlineSpreadsheet>
+     * @return \Illuminate\Database\Eloquent\Collection<int, \App\Models\OnlineSpreadsheet> 在线表格查询或计算结果集合；无匹配时为空集合
      */
     public function all(): Collection
     {

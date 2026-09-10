@@ -15,6 +15,52 @@ use Tests\TestCase;
 
 class OrderManagementTest extends TestCase
 {
+    public function test_large_order_reads_cross_batches_without_offset_or_missing_equal_time_rows(): void
+    {
+        $template = $this->order(['order_time' => '2026-07-31T16:00:00Z'])->getAttributes();
+        unset($template['id']);
+        $records = [];
+        for ($index = 0; $index < 502; $index++) {
+            $records[] = array_merge($template, ['entity_uuid' => (string) \Illuminate\Support\Str::uuid(), 'order_id' => 'BATCH-' . $index]);
+        }
+        DB::table('orders')->insert($records);
+        $invoice = \App\Models\InvoiceOrder::create(['order_number' => 'BATCH-INVOICE', 'invoice_date' => '2026-08-01', 'invoice_status' => 'Paid', 'amount_usd' => 12]);
+        DB::enableQueryLog();
+        try {
+            $rows = app(\App\Services\OrderManagementService::class)->rows([]);
+            $queries = DB::getQueryLog();
+        } finally {
+            DB::disableQueryLog();
+            DB::flushQueryLog();
+        }
+        $this->assertCount(504, $rows);
+        $this->assertCount(504, array_unique(array_map(fn ($row) => $row['kind'] . ':' . $row['id'], $rows)));
+        // 相同下单时间仍沿用原接口的字符串 ID 倒序，Invoice 保留自己的 ID 前缀。
+        $expectedIds = array_map('strval', range(1, 503));
+        $expectedIds[] = 'invoice:' . $invoice->id;
+        rsort($expectedIds, SORT_STRING);
+        $this->assertSame($expectedIds, array_map('strval', array_column($rows, 'id')));
+        $orderQueries = array_values(array_filter($queries, fn ($query) => str_contains($query['query'], 'from "orders"')));
+        $this->assertCount(2, $orderQueries);
+        $this->assertStringContainsString('"id" > ?', $orderQueries[1]['query']);
+        $this->assertStringNotContainsString('offset 500', $orderQueries[1]['query']);
+    }
+
+    public function test_statistic_projection_skips_product_json_but_keeps_allocation_and_list_links(): void
+    {
+        $order = $this->order(['raw' => [
+            'staffAllocations' => [['staffCode' => 'AA', 'percent' => 25], ['staffCode' => 'BB', 'percent' => 75]],
+            'products' => [['name' => 'Shirt', 'url' => 'https://shop.example/shirt', 'quantity' => 2]],
+        ]]);
+        $dao = app(\App\Dao\OrderManagementDao::class);
+        $stats = collect($dao->orders(['_orderId' => $order->id, '_withProducts' => false]))->first();
+        $this->assertArrayNotHasKey('products', $stats->raw);
+        $this->assertCount(2, $stats->raw['staffAllocations']);
+        $list = collect($dao->orders(['_orderId' => $order->id]))->first();
+        $this->assertSame('https://shop.example/shirt', $list->raw['products'][0]['url']);
+        $this->stat('staff')->assertOk()->assertJsonPath('data.list.0.key', 'BB')->assertJsonPath('data.list.0.amountUsd', 75);
+    }
+
     private string $schema;
 
     protected function setUp(): void
@@ -159,6 +205,37 @@ class OrderManagementTest extends TestCase
             ->assertJsonPath('data.total', 1)->assertJsonPath('data.list.0.orderId', 'MANUAL-1');
     }
 
+    public function test_order_list_returns_individual_product_links_and_preserves_name_fallback(): void
+    {
+        $order = $this->order([
+            'client_order_id' => 'PRODUCT-LINKS',
+            'product_name' => 'Shirt / Shoes / Gift',
+            'raw' => ['products' => [
+                ['name' => 'Shirt', 'url' => 'https://shop.example/product?id=101', 'quantity' => 2, 'images' => ['data:image/png;base64,large-inline-image']],
+                ['name' => 'Shoes', 'url' => 'http://shop.example/product?id=102', 'quantity' => 1],
+                ['name' => 'Gift', 'quantity' => 1],
+            ]],
+        ]);
+        $source = collect(app(\App\Dao\OrderManagementDao::class)->orders(['_orderId' => $order->id]))->first();
+        $this->assertArrayNotHasKey('images', $source->raw['products'][0]);
+        $response = $this->getJson('/api/order-management/orders?orderId=PRODUCT-LINKS&page=1&per_page=20');
+        $response->assertOk()->assertJsonPath('data.total', 1)
+            ->assertJsonCount(3, 'data.list.0.products')
+            ->assertJsonPath('data.list.0.productName', 'Shirt / Shoes / Gift')
+            ->assertJsonPath('data.list.0.products.0.name', 'Shirt')
+            ->assertJsonPath('data.list.0.products.0.url', 'https://shop.example/product?id=101')
+            ->assertJsonPath('data.list.0.products.0.quantity', 2)
+            ->assertJsonPath('data.list.0.products.1.name', 'Shoes')
+            ->assertJsonPath('data.list.0.products.1.url', 'http://shop.example/product?id=102')
+            ->assertJsonPath('data.list.0.products.2.name', 'Gift')
+            ->assertJsonPath('data.list.0.products.2.url', '');
+
+        $this->order(['client_order_id' => 'NAME-ONLY', 'product_name' => 'Legacy product']);
+        $this->getJson('/api/order-management/orders?orderId=NAME-ONLY')
+            ->assertOk()->assertJsonPath('data.list.0.productName', 'Legacy product')
+            ->assertJsonMissingPath('data.list.0.products');
+    }
+
     public function test_invoice_deduplication_and_source_kpi_exclusion(): void
     {
         $this->order();
@@ -167,14 +244,39 @@ class OrderManagementTest extends TestCase
         DB::table('invoice_items')->insert(['invoice_id' => $id,'product_name' => 'Item','quantity' => 3]);
         $this->stat('overview')->assertOk()->assertJsonPath('data.orders', 1);
         $this->stat('categories')->assertOk()->assertJsonPath('data.totals.orders', 2)->assertJsonPath('data.totals.amountUsd', 150);
+        $categories = collect($this->stat('categories')->assertOk()->json('data.list'))->keyBy('key');
+        $this->assertCount(6, $categories);
+        $this->assertEquals(1, $categories['invoice']['orders']);
+        $this->assertEquals(50, $categories['invoice']['amountUsd']);
+        $this->assertEquals(33.33, $categories['invoice']['share']);
         $this->getJson('/api/order-management/orders?classification=invoice')->assertOk()->assertJsonPath('data.total', 1)->assertJsonPath('data.list.0.items', 3);
+    }
+
+    public function test_categories_include_zero_sales_categories_in_an_empty_or_partially_populated_period(): void
+    {
+        $empty = $this->stat('categories')->assertOk()->assertJsonCount(6, 'data.list')->json('data');
+        $this->assertSame(array_keys(\App\Services\OrderManagementService::CATEGORIES), array_column($empty['list'], 'key'));
+        foreach ($empty['list'] as $category) {
+            foreach (['orders', 'items', 'amountUsd', 'share'] as $field) {
+                $this->assertEquals(0, $category[$field]);
+            }
+        }
+
+        $this->order();
+        $result = $this->stat('categories')->assertOk()->assertJsonCount(6, 'data.list')->json('data');
+        $categories = collect($result['list'])->keyBy('key');
+        $this->assertEquals(0, $categories['invoice']['orders']);
+        $this->assertEquals(0, $categories['invoice']['amountUsd']);
+        $this->assertEquals(100, $categories['offline']['share']);
+        $this->assertEquals(100, $result['totals']['amountUsd']);
     }
 
     public function test_allocations_normalize_and_staff_drilldown_includes_collaborator(): void
     {
         $this->order(['raw' => ['staffAllocations' => [['staffCode' => 'AA','percent' => 25],['staffCode' => 'BB','percent' => 75]]]]);
         $this->stat('staff')->assertOk()->assertJsonPath('data.list.0.key', 'BB')->assertJsonPath('data.list.0.amountUsd', 75)->assertJsonPath('data.list.0.orders', 0.75);
-        $this->getJson('/api/order-management/orders?customerService=bb')->assertOk()->assertJsonPath('data.total', 1);
+        $this->getJson('/api/order-management/orders?customerService=bb')->assertOk()
+            ->assertJsonPath('data.total', 1)->assertJsonPath('data.list.0.staff', 'AA, BB');
     }
 
     public function test_currency_fallback_does_not_use_future_rates_or_lose_zero_values(): void
@@ -258,7 +360,10 @@ class OrderManagementTest extends TestCase
         $this->getJson('/api/order-management/orders')->assertOk()->assertJsonPath('data.list.0.primaryStaffCode', 'AA');
         $data = ['version' => 1,'primaryStaffCode' => 'BB','staffAllocations' => [['staffCode' => 'AA','percent' => 50],['staffCode' => 'BB','percent' => 50]]];
         $this->putJson('/api/order-management/orders/' . $order->id . '/staff', $data)->assertOk();
-        $this->getJson('/api/order-management/orders')->assertOk()->assertJsonPath('data.list.0.primaryStaffCode', 'BB')->assertJsonPath('data.list.0.paymentStatus', 'completed');
+        $this->getJson('/api/order-management/orders')->assertOk()
+            ->assertJsonPath('data.list.0.primaryStaffCode', 'BB')
+            ->assertJsonPath('data.list.0.staff', 'AA, BB')
+            ->assertJsonPath('data.list.0.paymentStatus', 'completed');
         $this->assertSame('AA', $order->fresh()->raw['dashboardEditHistory'][0]['before']['primaryStaffCode']);
         $data['version'] = 2;
         $data['staffAllocations'] = [['staffCode' => 'AA', 'percent' => 100]];
@@ -288,8 +393,12 @@ class OrderManagementTest extends TestCase
         $this->assertEquals($allocations, $order->fresh()->raw['staffAllocations']);
         $this->getJson('/api/order-management/orders')->assertOk()
             ->assertJsonPath('data.list.0.primaryStaffCode', 'CC')
+            ->assertJsonPath('data.list.0.staff', 'CC, BB')
             ->assertJsonPath('data.list.0.paymentStatus', 'completed')
             ->assertJsonCount(2, 'data.list.0.staffAllocations');
+        $this->getJson('/api/order-management/orders?customerService=BB&staffExact=1&startDate=2026-08-01&endDate=2026-08-01&page=1&per_page=20')
+            ->assertOk()->assertJsonPath('data.list.0.staff', 'CC, BB')
+            ->assertJsonPath('data.list.0.version', 2)->assertJsonPath('data.total', 1);
         $this->getJson('/api/order-management/orders?customerService=AA&staffExact=1')
             ->assertOk()->assertJsonPath('data.total', 0);
         $this->stat('staff')->assertOk()->assertJsonCount(2, 'data.list')
@@ -305,6 +414,8 @@ class OrderManagementTest extends TestCase
         ])->assertOk()->assertJsonPath('data.version', 3);
         $this->stat('staff')->assertOk()->assertJsonCount(1, 'data.list')
             ->assertJsonPath('data.list.0.key', 'BB')->assertJsonPath('data.list.0.amountUsd', 100);
+        $this->getJson('/api/order-management/orders')->assertOk()
+            ->assertJsonPath('data.list.0.staff', 'BB')->assertJsonCount(1, 'data.list.0.staffAllocations');
     }
 
     public function test_editor_options_include_history_and_require_order_edit_permissions(): void

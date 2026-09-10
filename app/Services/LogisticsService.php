@@ -11,15 +11,37 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 /** API 仅鉴权、提交及核对同库任务；第三方物流调用全部由 Collector 执行。 */
 class LogisticsService
 {
+    /**
+     * 注入 物流采集处理所需的依赖。
+     *
+     * @param  LogisticsDao  $logisticsDao  物流采集数据访问对象
+     * @param  BusinessOperationLogDao  $businessOperationLogDao  业务操作日志数据访问对象
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private LogisticsDao $logisticsDao, private BusinessOperationLogDao $businessOperationLogDao)
     {
     }
 
+    /**
+     * 读取物流服务状态或指定物流任务的执行进度。
+     *
+     * @param  string|null  $jobId  采集任务编号
+     * @return array Collector 返回的物流服务或指定任务状态
+     */
     public function status(?string $jobId): array
     {
         return $this->request('get', '/api/logistics/status', $jobId ? ['jobId' => $jobId] : []);
     }
 
+    /**
+     * 提交物流刷新任务并记录操作人。
+     *
+     * @param  array  $data  经过 Controller 校验的业务字段；本方法读取 provider、taskId、requestId
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @return array Collector 已受理并经本地数据库核验的物流任务结果
+     * @see LogisticsDao::find()
+     * @see BusinessOperationLogDao::record()
+     */
     public function refresh(array $data, int $actor): array
     {
         $result = $this->request('post', '/api/logistics/refresh', [
@@ -35,6 +57,15 @@ class LogisticsService
         return $result;
     }
 
+    /**
+     * 调用 Collector 物流接口，将连接或业务失败转换为 HTTP 异常。
+     *
+     * @param  string  $method  HTTP 请求方法，如 get 或 post
+     * @param  string  $path  Collector 物流接口路径
+     * @param  array  $data  经过 Controller 校验的业务字段
+     * @param  array  $headers  需要附带的 HTTP 请求头
+     * @return array 成功响应的 JSON 数据；失败时抛 HTTP 异常
+     */
     private function request(string $method, string $path, array $data, array $headers = []): array
     {
         if (!config('collector.token')) {

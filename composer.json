@@ -35,6 +35,8 @@
         }
     },
     "scripts": {
+        "docs:generate": "@php scripts/generate-api-docs.php",
+        "docs:check": "@php scripts/check-api-docs.php",
         "format": "pint --config=pint.json app/Controllers app/Services app/Dao app/Models",
         "format:check": "pint --config=pint.json --test app/Controllers app/Services app/Dao app/Models",
         "setup": [

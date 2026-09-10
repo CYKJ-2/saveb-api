@@ -13,6 +13,15 @@ use Symfony\Component\Process\Process;
  */
 class InvoiceOcrService
 {
+    /**
+     * 注入 Invoice 截图识别处理所需的依赖。
+     *
+     * @param  AttachmentService  $attachmentService  附件业务服务
+     * @param  BusinessOperationLogDao  $businessOperationLogDao  业务操作日志数据访问对象
+     * @param  InvoiceOcrParserService  $invoiceOcrParserService  Invoice 文本解析业务服务
+     * @param  InvoiceOcrImageService  $invoiceOcrImageService  OCR 图片预处理业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(
         private AttachmentService $attachmentService,
         private BusinessOperationLogDao $businessOperationLogDao,
@@ -23,6 +32,14 @@ class InvoiceOcrService
 
     /**
      * 识别截图文字。
+     *
+     * @param  int  $id  Invoice 截图识别记录主键 ID
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @param  bool  $readBound  是否允许读取已绑定业务订单的附件
+     * @return array OCR 引擎结果与可填入 Invoice 表单的字段建议
+     * @see AttachmentService::file()
+     * @see InvoiceOcrParserService::parse()
+     * @see BusinessOperationLogDao::record()
      */
     public function recognize(
         int $id,
@@ -54,7 +71,14 @@ class InvoiceOcrService
         ];
     }
 
-    /** 调用已配置的原有 OCR 引擎，只传递经过附件权限校验的内部路径。 */
+    /**
+     * 调用已配置的原有 OCR 引擎，只传递经过附件权限校验的内部路径。
+     *
+     * @param  string  $url  目标服务地址
+     * @param  string  $relative  经过附件校验的存储相对路径
+     * @return array Invoice 截图识别结果数组；返回字段：blocks、engine
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     */
     private function recognizeRemotely(string $url, string $relative): array
     {
         try {
@@ -76,7 +100,13 @@ class InvoiceOcrService
         ];
     }
 
-    /** 本地 Docker 没有常驻引擎时使用 Tesseract，进程参数不经过 shell。 */
+    /**
+     * 本地 Docker 没有常驻引擎时使用 Tesseract，进程参数不经过 shell。
+     *
+     * @param  string  $path  本地文件绝对路径
+     * @return array 本地 OCR 文本与对应解析建议
+     * @see InvoiceOcrImageService::prepare()
+     */
     private function recognizeLocally(string $path): array
     {
         $preparedPath = $this->invoiceOcrImageService->prepare($path);
@@ -89,7 +119,13 @@ class InvoiceOcrService
         }
     }
 
-    /** 文字按视觉行输出，商品卡片的行金额与下一行数量由 Parser 组合。 */
+    /**
+     * 文字按视觉行输出，商品卡片的行金额与下一行数量由 Parser 组合。
+     *
+     * @param  string  $path  本地文件绝对路径
+     * @return array Invoice 截图识别结果数组；返回字段：engine、blocks
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     */
     private function runLocalEngine(string $path): array
     {
         $process = new Process([

@@ -14,12 +14,28 @@ use Illuminate\Validation\ValidationException;
  */
 class DashboardOverviewController
 {
+    /**
+     * 注入 首页概览处理所需的依赖。
+     *
+     * @param  DashboardOverviewService  $dashboardOverviewService  首页概览业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private DashboardOverviewService $dashboardOverviewService)
     {
     }
 
     /**
-     * 读取详情。
+     * 按日期范围读取指定首页统计模块。
+     *
+     * 请求字段（校验规则）：
+     * - startDate：'sometimes|required|date_format:Y-m-d'
+     * - endDate：'sometimes|required|date_format:Y-m-d'
+     * - granularity：'sometimes|required|in:day,month'
+     *
+     * @param  Request  $request  当前 HTTP 请求；查询或表单参数由本方法校验，登录上下文由认证中间件注入
+     * @param  string  $module  要查询的统计或业务模块标识
+     * @return JsonResponse 统一 JSON 响应；data 为首页概览的模块数据
+     * @see DashboardOverviewService::show()
      */
     public function show(Request $request, string $module): JsonResponse
     {

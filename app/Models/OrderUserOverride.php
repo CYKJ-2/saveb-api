@@ -38,7 +38,7 @@ class OrderUserOverride extends BaseModel
     /**
      * 关联客服分摊。
      *
-     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\OrderStaffAllocation, $this>
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\OrderStaffAllocation, $this> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function allocations(): HasMany
     {

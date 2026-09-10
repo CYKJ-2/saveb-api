@@ -1,17 +1,17 @@
 # Local migration integration. Reuses the existing attachment volume and OCR engine.
 # docker network create saveb-business-services
 # docker network connect saveb-business-services saveb-erp-dev-ocr-engine-1
-# docker compose -f docker-compose.yml -f build/docker/docker-compose.local.yml -f docker-compose.modules.yml up -d --no-deps app
+# docker compose -f docker-compose.yml -f docker-compose.modules.yml up -d --no-deps app
 services:
   app:
     image: saveb-api-app:local
-    command: ["sh", "/var/www/html/build/php/start-business.sh"]
+    command: ["sh", "/var/www/html/docker/start-local.sh"]
     environment:
       BUSINESS_ATTACHMENTS_ROOT: /data/attachments
       BUSINESS_OCR_URL: http://saveb-erp-dev-ocr-engine-1:8081
     volumes:
       - legacy_attachments:/data/attachments
-      - ./build/php/business-uploads.ini:/usr/local/etc/php/conf.d/business-uploads.ini:ro
+      - ./docker/business-uploads.ini:/usr/local/etc/php/conf.d/business-uploads.ini:ro
     networks:
       - business-services
 volumes:

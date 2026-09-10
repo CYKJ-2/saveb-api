@@ -18,7 +18,7 @@ class ApiTokenDao extends BaseDao
     /**
      * 返回当前 DAO 关联的模型类。
      *
-     * @return class-string<ApiToken>
+     * @return class-string<ApiToken> 模型类名
      */
     protected function model(): string
     {
@@ -30,7 +30,7 @@ class ApiTokenDao extends BaseDao
      * 不存在或已过期均返回 null。
      *
      * @param  string  $plain  Bearer token 明文
-     * @return ApiToken|null
+     * @return ApiToken|null API 令牌模型实例；未找到时返回 null
      */
     public function findValidByPlain(string $plain): ?ApiToken
     {
@@ -51,7 +51,7 @@ class ApiTokenDao extends BaseDao
      * 获取指定用户所有有效 token。
      *
      * @param  int  $userId  用户主键 ID
-     * @return Collection<int, ApiToken>
+     * @return Collection<int, ApiToken> API 令牌查询或计算结果集合；无匹配时为空集合
      */
     public function findByUser(int $userId): Collection
     {
@@ -71,7 +71,7 @@ class ApiTokenDao extends BaseDao
      * 物理删除（不软删除）某用户的所有 token。
      *
      * @param  int  $userId  用户主键 ID
-     * @return int           受影响行数
+     * @return int 受影响行数
      */
     public function deleteByUser(int $userId): int
     {
@@ -82,7 +82,7 @@ class ApiTokenDao extends BaseDao
      * 按明文 token 直接删除对应行（登出用）。
      *
      * @param  string  $plain  Bearer token 明文
-     * @return int             受影响行数
+     * @return int 受影响行数
      */
     public function deleteByPlain(string $plain): int
     {
@@ -94,7 +94,7 @@ class ApiTokenDao extends BaseDao
     /**
      * 清理已过期的 token 记录（批量回收）。
      *
-     * @return int  受影响行数
+     * @return int 受影响行数
      */
     public function pruneExpired(): int
     {
@@ -109,7 +109,7 @@ class ApiTokenDao extends BaseDao
      * 统计某用户的有效 token 数量。
      *
      * @param  int  $userId  用户主键 ID
-     * @return int           有效 token 数
+     * @return int 有效 token 数
      */
     public function countByUser(int $userId): int
     {
@@ -120,7 +120,7 @@ class ApiTokenDao extends BaseDao
      * 刷新 token 的 last_used_at 字段为当前时间。
      *
      * @param  int  $tokenId  token 主键 ID
-     * @return int            受影响行数
+     * @return int 受影响行数
      */
     public function touch(int $tokenId): int
     {

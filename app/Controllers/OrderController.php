@@ -45,6 +45,7 @@ class OrderController extends BaseController
      * 构造函数，注入订单服务层。
      *
      * @param  OrderService  $orderService  订单业务服务
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly OrderService $orderService)
     {
@@ -56,7 +57,8 @@ class OrderController extends BaseController
      * 与 saveb-erp /api/order-search 等价的分页查询接口。
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       分页结果（list + total + page + per_page + last_page）
+     * @return JsonResponse 分页结果（list + total + page + per_page + last_page）
+     * @see OrderService::search()
      */
     public function index(Request $request): JsonResponse
     {
@@ -85,7 +87,8 @@ class OrderController extends BaseController
      * 统计订单总数，可按状态过滤。
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       { total: int, status: string|null }
+     * @return JsonResponse { total: int, status: string|null }
+     * @see OrderService::count()
      */
     public function count(Request $request): JsonResponse
     {
@@ -102,8 +105,9 @@ class OrderController extends BaseController
      *
      * 获取单个订单详情。不存在时抛 404 + CODE_ORDER_NOT_FOUND。
      *
-     * @param  int          $id  订单主键 ID
-     * @return JsonResponse      订单详情数组
+     * @param  int  $id  订单主键 ID
+     * @return JsonResponse 订单详情数组
+     * @see OrderService::find()
      */
     public function show(int $id): JsonResponse
     {
@@ -136,7 +140,8 @@ class OrderController extends BaseController
      *   raw             array?  原始 JSON 负载
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       HTTP 201，新创建的订单
+     * @return JsonResponse HTTP 201，新创建的订单
+     * @see OrderService::create()
      */
     public function store(Request $request): JsonResponse
     {
@@ -170,9 +175,30 @@ class OrderController extends BaseController
      *
      * 请求体：与 create 一致，但所有字段变为可选；可额外传 version 用于 CAS。
      *
-     * @param  int      $id      订单主键 ID
-     * @param  Request  $request HTTP 请求对象
-     * @return JsonResponse      更新后的订单
+     * 请求字段（校验规则）：
+     * - orderId：'sometimes|nullable|string|max:128'
+     * - clientOrderId：'sometimes|nullable|string|max:128'
+     * - paypalOrderId：'sometimes|nullable|string|max:128'
+     * - orderTime：'sometimes|nullable|date'
+     * - customerName：'sometimes|nullable|string|max:255'
+     * - sourceSite：'sometimes|nullable|string|max:255'
+     * - classification：'sometimes|nullable|string|max:64'
+     * - influencerName：'sometimes|nullable|string|max:255'
+     * - receivingPaypal：'sometimes|nullable|string|max:255'
+     * - amountOriginal：'sometimes|nullable|numeric'
+     * - currency：'sometimes|nullable|string|max:16'
+     * - amountUsd：'sometimes|nullable|numeric'
+     * - itemsCount：'sometimes|nullable|integer|min:1'
+     * - productName：'sometimes|nullable|string|max:500'
+     * - orderStatus：'sometimes|nullable|string|max:64'
+     * - staffCode：'sometimes|nullable|string|max:64'
+     * - raw：'sometimes|nullable|array'
+     * - version：'sometimes|nullable|integer|min:1'
+     *
+     * @param  int  $id  订单主键 ID
+     * @param  Request  $request  HTTP 请求对象
+     * @return JsonResponse 更新后的订单
+     * @see OrderService::update()
      */
     public function update(int $id, Request $request): JsonResponse
     {
@@ -205,8 +231,9 @@ class OrderController extends BaseController
      *
      * 软删除订单。不存在时抛 404 + CODE_ORDER_NOT_FOUND。
      *
-     * @param  int          $id  订单主键 ID
-     * @return JsonResponse      { deleted: true }
+     * @param  int  $id  订单主键 ID
+     * @return JsonResponse { deleted: true }
+     * @see OrderService::delete()
      */
     public function destroy(int $id): JsonResponse
     {

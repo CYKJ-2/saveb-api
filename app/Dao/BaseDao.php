@@ -28,7 +28,7 @@ abstract class BaseDao
     /**
      * 返回当前 DAO 关联的 Eloquent 模型类名。
      *
-     * @return class-string<T>
+     * @return class-string<T> 模型类名
      */
     abstract protected function model(): string;
 
@@ -36,8 +36,8 @@ abstract class BaseDao
      * 按主键或 where 条件查找单条记录。
      *
      * @param  int|array  $pkOrWhere  主键 ID（int）或 where 条件（数组）
-     * @param  array      $fields     需要选择的列，默认全选
-     * @return T|null                 命中返回模型实例，否则 null
+     * @param  array  $fields  需要选择的列，默认全选
+     * @return T|null 命中返回模型实例，否则 null
      */
     public function find(int|array $pkOrWhere, array $fields = ['*']): ?EloquentModel
     {
@@ -54,10 +54,10 @@ abstract class BaseDao
     /**
      * 按 where 条件获取多条记录。
      *
-     * @param  array                                  $where   字段 => 值（数组值用 whereIn）
-     * @param  array                                  $fields  选择的列
-     * @param  array<string, 'asc'|'desc'>            $order   排序规则
-     * @return Collection<int, T>                              命中集合
+     * @param  array  $where  字段 => 值（数组值用 whereIn）
+     * @param  array  $fields  选择的列
+     * @param  array<string, 'asc'|'desc'>  $order  排序规则
+     * @return Collection<int, T> 命中集合
      */
     public function getAll(
         array $where = [],
@@ -84,12 +84,12 @@ abstract class BaseDao
     /**
      * 按 where 条件分页查询。
      *
-     * @param  array                                  $where    字段 => 值
-     * @param  int                                    $perPage  每页条数
-     * @param  int                                    $page     1-based 页码
-     * @param  array<string, 'asc'|'desc'>            $order    排序规则
-     * @param  array                                  $fields   选择的列
-     * @return LengthAwarePaginator<T>                          分页器
+     * @param  array  $where  字段 => 值
+     * @param  int  $perPage  每页条数
+     * @param  int  $page  1-based 页码
+     * @param  array<string, 'asc'|'desc'>  $order  排序规则
+     * @param  array  $fields  选择的列
+     * @return LengthAwarePaginator<T> 分页器
      */
     public function paginate(
         array $where = [],
@@ -119,7 +119,7 @@ abstract class BaseDao
      * 创建一条新记录。
      *
      * @param  array  $data  模型可填充属性
-     * @return T             已写入数据库的模型实例（含主键 ID）
+     * @return T 已写入数据库的模型实例（含主键 ID）
      */
     public function create(array $data): EloquentModel
     {
@@ -133,7 +133,7 @@ abstract class BaseDao
      * 创建一条新记录并返回主键值。
      *
      * @param  array  $data  模型可填充属性
-     * @return int           新记录的主键 ID；保存失败返回 0
+     * @return int 新记录的主键 ID；保存失败返回 0
      */
     public function insertGetId(array $data): int
     {
@@ -147,8 +147,8 @@ abstract class BaseDao
      * 按 where 条件更新记录。
      *
      * @param  array  $where  更新条件
-     * @param  array  $data   待更新字段
-     * @return int            受影响行数
+     * @param  array  $data  待更新字段
+     * @return int 受影响行数
      */
     public function updateWhere(array $where, array $data): int
     {
@@ -162,7 +162,7 @@ abstract class BaseDao
      * 按属性匹配存在则更新，否则插入。
      *
      * @param  array  $attributes  匹配条件
-     * @param  array  $values      插入/更新字段
+     * @param  array  $values  插入/更新字段
      * @return array{0: bool, 1: T} 是否新建 + 模型实例
      */
     public function updateOrCreate(array $attributes, array $values): array
@@ -188,7 +188,7 @@ abstract class BaseDao
      * 按 where 条件删除记录（软删除模型走 SoftDeletes 行为）。
      *
      * @param  array  $where  删除条件
-     * @return int            受影响行数
+     * @return int 受影响行数
      */
     public function deleteWhere(array $where): int
     {
@@ -202,7 +202,7 @@ abstract class BaseDao
      * 判断指定 where 条件下是否存在记录。
      *
      * @param  array  $where  查询条件
-     * @return bool           存在返回 true
+     * @return bool 存在返回 true
      */
     public function exists(array $where): bool
     {
@@ -216,7 +216,7 @@ abstract class BaseDao
      * 按 where 条件统计记录数。
      *
      * @param  array  $where  查询条件
-     * @return int            命中数量
+     * @return int 命中数量
      */
     public function count(array $where = []): int
     {
@@ -230,8 +230,8 @@ abstract class BaseDao
      * 按 where 条件对指定字段求和。
      *
      * @param  string  $field  字段名
-     * @param  array   $where  查询条件
-     * @return float           求和结果
+     * @param  array  $where  查询条件
+     * @return float 求和结果
      */
     public function sum(string $field, array $where = []): float
     {
@@ -244,9 +244,9 @@ abstract class BaseDao
     /**
      * 按主键批量更新不同列的值。
      *
-     * @param  string     $tableName  目标表名（用于直接 SQL）
-     * @param  array      $records    待更新记录数组，每条必须包含 'id' 字段
-     * @return int                    受影响行数
+     * @param  string  $tableName  目标表名（用于直接 SQL）
+     * @param  array  $records  待更新记录数组；第一条记录的首个字段作为匹配键，各行使用相同字段结构
+     * @return int 受影响行数
      */
     public function updateBatch(string $tableName, array $records): int
     {
@@ -277,7 +277,7 @@ abstract class BaseDao
     /**
      * 获取模型查询构造器。
      *
-     * @return \Illuminate\Database\Eloquent\Builder<T>
+     * @return \Illuminate\Database\Eloquent\Builder<T> 已应用上述条件的查询构造器，可继续追加查询
      */
     protected function query(): Builder
     {
@@ -288,7 +288,7 @@ abstract class BaseDao
      * 用指定属性实例化一个尚未保存的模型。
      *
      * @param  array  $attributes  初始属性
-     * @return T                   模型实例
+     * @return T 模型实例
      */
     protected function newModel(array $attributes = []): EloquentModel
     {
@@ -300,7 +300,7 @@ abstract class BaseDao
     /**
      * 获取当前模型主键列名（自动从表中读出）。
      *
-     * @return string  主键列名（一般是 'id'）
+     * @return string 主键列名（一般是 'id'）
      */
     protected function pk(): string
     {

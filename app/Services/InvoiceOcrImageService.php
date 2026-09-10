@@ -5,6 +5,13 @@ namespace App\Services;
 /** 为本地 OCR 放大小字号截图；附件原文件和校验值保持不变。 */
 class InvoiceOcrImageService
 {
+    /**
+     * 在内存预算内放大小字号截图并铺白底，供本地 OCR 识别。
+     *
+     * @param  string  $path  本地文件绝对路径
+     * @return string 放大后临时图片路径；不适合预处理时返回原路径，处理异常向上抛出
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     */
     public function prepare(string $path): string
     {
         $size = @getimagesize($path);

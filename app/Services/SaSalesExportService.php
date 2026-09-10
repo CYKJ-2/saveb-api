@@ -7,10 +7,24 @@ use App\Common\ExportHeaders;
 /** 保持原平台 reportCsv 的分段、表头顺序与指标口径。 */
 class SaSalesExportService
 {
+    /**
+     * 注入 SA 销售导出处理所需的依赖。
+     *
+     * @param  SaSalesService  $saSalesService  SA 销售业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private SaSalesService $saSalesService)
     {
     }
 
+    /**
+     * 根据当前语言生成 SA 报表 CSV 的分区标题、表头和数据行。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 startDate、endDate
+     * @param  string  $locale  当前界面语言，如 zh-CN 或 en-US
+     * @return iterable 按 CSV 输出顺序生成的分区、表头和单元格行
+     * @see SaSalesService::report()
+     */
     public function lines(array $filters, string $locale): iterable
     {
         $report = $this->saSalesService->report($filters + ['includeDetails' => true]);
@@ -52,6 +66,13 @@ class SaSalesExportService
         }
     }
 
+    /**
+     * 按导出字段顺序提取单行数据，空值输出为空单元格。
+     *
+     * @param  array  $row  SA 销售导出单条记录
+     * @param  array  $fields  查询或输出的字段列表
+     * @return array 与 fields 顺序一致的单元格数组
+     */
     private function cells(array $row, array $fields): array
     {
         $money = ['sales', 'refunds', 'netSales', 'totalCommission', 'averageOrderValue', 'dailyAverage', 'commission', 'amountUsd', 'sharePercent'];

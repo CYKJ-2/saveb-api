@@ -12,10 +12,29 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 /** 首页采集监控和当天采集编排；浏览器不接触来源 Cookie 或采集器令牌。 */
 class CollectorService
 {
+    /**
+     * 注入 采集运行状态处理所需的依赖。
+     *
+     * @param  CollectorDao  $collectorDao  采集运行状态数据访问对象
+     * @param  CollectorManagementDao  $collectorManagementDao  采集任务数据访问对象
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private CollectorDao $collectorDao, private CollectorManagementDao $collectorManagementDao)
     {
     }
 
+    /**
+     * 读取当前数据库的采集任务、调度心跳及执行进度。
+     *
+     * @return array 采集服务可用性、调度心跳、当前任务及最近成功任务等状态
+     * @see CollectorDao::installed()
+     * @see CollectorDao::latest()
+     * @see CollectorDao::active()
+     * @see CollectorDao::lastSuccess()
+     * @see CollectorDao::scheduler()
+     * @see CollectorManagementDao::schedule()
+     * @see CollectorDao::progress()
+     */
     public function status(): array
     {
         $now = now('Asia/Shanghai');
@@ -73,11 +92,25 @@ class CollectorService
         return [...$result, 'state' => 'success'];
     }
 
+    /**
+     * 检查采集服务地址与访问令牌是否已配置。
+     *
+     * @return bool 采集服务地址和令牌均已配置时为 true
+     */
     private function configured(): bool
     {
         return (bool) config('collector.url') && (bool) config('collector.token');
     }
 
+    /**
+     * 提交当日采集任务，并核对任务已发布到当前数据库。
+     *
+     * @param  int  $userId  用户主键 ID
+     * @param  string  $idempotencyKey  幂等请求编号；重试同一次操作时沿用原值
+     * @return array 采集运行状态结果数组；返回字段：jobId、status、date
+     * @see CollectorDao::installed()
+     * @see CollectorDao::findPublished()
+     */
     public function collectToday(int $userId, string $idempotencyKey): array
     {
         if (!$this->configured() || !$this->collectorDao->installed()) {

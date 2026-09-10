@@ -15,12 +15,23 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class OrderManagementController extends Controller
 {
+    /**
+     * 注入 订单管理处理所需的依赖。
+     *
+     * @param  OrderManagementService  $orderManagementService  订单管理业务服务
+     * @param  RbacService  $rbacService  有效权限业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private OrderManagementService $orderManagementService, private RbacService $rbacService)
     {
     }
 
     /**
      * 校验并整理筛选条件。
+     *
+     * @param  Request  $request  当前 HTTP 请求；查询或表单参数由本方法校验，登录上下文由认证中间件注入
+     * @return array 通过校验的订单搜索字段及 page、per_page 分页参数
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
      */
     private function filters(Request $request): array
     {
@@ -57,6 +68,10 @@ class OrderManagementController extends Controller
 
     /**
      * 检查是否可查询测试订单。
+     *
+     * @param  Request  $request  当前 HTTP 请求；查询或表单参数由本方法校验，登录上下文由认证中间件注入
+     * @return bool 拥有通配权限或 system.order.testing 权限时为 true
+     * @see RbacService::codes()
      */
     private function canTest(Request $request): bool
     {
@@ -66,21 +81,34 @@ class OrderManagementController extends Controller
     }
 
     /**
-     * 查询列表。
+     * 查询订单管理列表。
+     *
+     * @param  Request  $request  当前 HTTP 请求；查询或表单参数由本方法校验，登录上下文由认证中间件注入
+     * @return JsonResponse 统一 JSON 响应；data 包含订单管理列表及相应分页信息
+     * @see OrderManagementService::search()
      */
     public function index(Request $request): JsonResponse
     {
         return AppResponse::success($this->orderManagementService->search($this->filters($request), $this->canTest($request)));
     }
 
-    /** 获取订单编辑可选客服，不依赖 Invoice 或用户管理权限。 */
+    /**
+     * 获取订单编辑可选客服，不依赖 Invoice 或用户管理权限。
+     *
+     * @return JsonResponse 统一 JSON 响应；data 为订单管理的业务结果
+     * @see OrderManagementService::editorOptions()
+     */
     public function editorOptions(): JsonResponse
     {
         return AppResponse::success($this->orderManagementService->editorOptions());
     }
 
     /**
-     * 导出数据。
+     * 导出订单管理的完整筛选结果。
+     *
+     * @param  Request  $request  当前 HTTP 请求；查询或表单参数由本方法校验，登录上下文由认证中间件注入
+     * @return StreamedResponse CSV 流式下载响应，包含表头及导出数据
+     * @see OrderManagementService::rows()
      */
     public function export(Request $request): StreamedResponse
     {
@@ -98,6 +126,19 @@ class OrderManagementController extends Controller
 
     /**
      * 校验版本并调整订单状态和客服分摊。
+     *
+     * 请求字段（校验规则）：
+     * - version：'required|integer|min:0'
+     * - targetStatus：'sometimes|in:completed'
+     * - primaryStaffCode：'required|string|max:64|regex:/^[A-Za-z0-9_-]+$/'
+     * - staffAllocations：'required|array|min:1|max:20'
+     * - staffAllocations.*.staffCode：'required|string|max:64|regex:/^[A-Za-z0-9_-]+$/'
+     * - staffAllocations.*.percent：'required|numeric|gt:0|lte:100'
+     *
+     * @param  Request  $request  当前 HTTP 请求；查询或表单参数由本方法校验，登录上下文由认证中间件注入
+     * @param  int  $id  订单管理记录主键 ID
+     * @return JsonResponse 统一 JSON 响应；data 为订单管理的业务结果
+     * @see OrderManagementService::adjust()
      */
     public function adjust(Request $request, int $id): JsonResponse
     {

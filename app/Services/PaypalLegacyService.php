@@ -16,30 +16,67 @@ class PaypalLegacyService
 
     private ?array $state = null;
 
+    /**
+     * 注入 PayPal 历史资料处理所需的依赖。
+     *
+     * @param  PaypalLegacyDao  $paypalLegacyDao  PayPal 历史资料数据访问对象
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private PaypalLegacyDao $paypalLegacyDao)
     {
     }
 
+    /**
+     * 读取已恢复的 PayPal 静态账户目录。
+     *
+     * @return array 静态与自定义账户目录，以及资料恢复时记录的导入分界
+     * @see PaypalLegacyDao::state()
+     */
     public function catalog(): array
     {
         return $this->catalog ??= $this->paypalLegacyDao->state('paypal_monitor_catalog');
     }
 
+    /**
+     * 读取原平台 PayPal 共享状态。
+     *
+     * @return array 历史余额、审核次数、自定义账户与提款共享状态
+     * @see PaypalLegacyDao::state()
+     */
     public function state(): array
     {
         return $this->state ??= $this->paypalLegacyDao->state('paypal_legacy_state');
     }
 
+    /**
+     * 按邮箱查找历史自定义账户基础资料。
+     *
+     * @param  string  $email  PayPal 收款账户邮箱
+     * @return array|null 指定邮箱的历史账户资料；未登记时为 null
+     */
     public function account(string $email): ?array
     {
         return $this->catalog()['accounts'][strtolower(trim($email))] ?? null;
     }
 
+    /**
+     * 按邮箱读取原平台最近登记的余额快照。
+     *
+     * @param  string  $email  PayPal 收款账户邮箱
+     * @return array|null 指定邮箱的历史余额登记快照；未登记时为 null
+     */
     public function balance(string $email): ?array
     {
         return $this->state()['balances'][strtolower(trim($email))] ?? null;
     }
 
+    /**
+     * 合并历史审核记录与账户资料中的审核次数。
+     *
+     * @param  string  $email  PayPal 收款账户邮箱
+     * @param  array  $account  PayPal 账户模型
+     * @return int 历史审核次数，最小为 0
+     */
     public function reviews(string $email, array $account): int
     {
         $saved = $this->state()['reviews'][strtolower(trim($email))] ?? null;
@@ -47,7 +84,13 @@ class PaypalLegacyService
         return max(0, (int) (is_array($saved) ? ($saved['value'] ?? 0) : ($saved ?? $account['numberOfReviews'] ?? $account['reviews'] ?? $account['reviewCount'] ?? 0)));
     }
 
-    /** 原平台优先使用 createdAt，其次 date；不得用数据库导入时间替代。 */
+    /**
+     * 按提款业务日期展示；创建时间仍用于导入分界和余额基线判断。
+     *
+     * @param  string  $email  PayPal 收款账户邮箱
+     * @param  bool  $afterImport  是否只读取导入分界后的历史提款；默认 false
+     * @return array 按业务日期呈现的历史提款列表，保留创建时间供基线判断
+     */
     public function entries(string $email, bool $afterImport = false): array
     {
         $record = $this->state()['withdrawals'][strtolower(trim($email))] ?? [];
@@ -62,13 +105,19 @@ class PaypalLegacyService
             if (!(float) ($entry['amount'] ?? 0)) {
                 continue;
             }
-            $rows[] = ['id' => 'legacy:' . $email . ':' . $index, 'date' => substr($timestamp, 0, 10),
+            $rows[] = ['id' => 'legacy:' . $email . ':' . $index, 'date' => $this->withdrawalDate($entry),
                 'amount' => round((float) $entry['amount'], 2), 'source' => '', 'timestamp' => $timestamp, 'imported' => false];
         }
 
         return $rows;
     }
 
+    /**
+     * 统计导入分界后的历史共享状态提款金额。
+     *
+     * @param  string  $email  PayPal 收款账户邮箱
+     * @return float 导入分界后的历史提款合计；无分界及明细时兼容累计值
+     */
     public function localWithdrawn(string $email): float
     {
         $entries = $this->entries($email, true);
@@ -80,6 +129,13 @@ class PaypalLegacyService
         return (float) (is_array($record) ? ($record['total'] ?? 0) : $record);
     }
 
+    /**
+     * 读取余额快照的提款基线，缺失时按余额登记时点回溯已累计提款。
+     *
+     * @param  string  $email  PayPal 收款账户邮箱
+     * @param  array  $balance  余额登记快照
+     * @return float 余额快照已计入的累计提款基线
+     */
     public function baselineWithdrawn(string $email, array $balance): float
     {
         if (isset($balance['baselineWithdrawed'])) {
@@ -93,7 +149,18 @@ class PaypalLegacyService
         ), 'amount')), 2);
     }
 
-    /** 可重复执行的基础资料恢复，不重置角色、余额登记或提款表。 */
+    /**
+     * 可重复执行的基础资料恢复，不重置角色、余额登记或提款表。
+     *
+     * @param  array  $legend  原静态账户目录资料
+     * @param  bool  $apply  是否实际保存恢复结果；false 仅预览
+     * @return array 账户总数、可用日期数、新增账户数及补齐日期数
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     * @see PaypalLegacyDao::localEditsExist()
+     * @see PaypalLegacyDao::saveCatalog()
+     * @see PaypalLegacyDao::withdrawalWatermark()
+     * @see PaypalLegacyDao::restoreAccount()
+     */
     public function restore(array $legend, bool $apply): array
     {
         $accounts = [];
@@ -137,6 +204,38 @@ class PaypalLegacyService
         });
     }
 
+    /**
+     * 优先采用登记的提款日期；旧记录缺少日期时，创建时间按北京时间归日。
+     *
+     * @param  array  $entry  历史提款记录
+     * @return string Y-m-d 提款业务日期；无法解析时为空字符串
+     */
+    private function withdrawalDate(array $entry): string
+    {
+        $businessDate = $this->date((string) ($entry['date'] ?? ''));
+        if ($businessDate !== null) {
+            return $businessDate;
+        }
+
+        $createdAt = trim((string) ($entry['createdAt'] ?? ''));
+        if ($createdAt === '') {
+            return '';
+        }
+        try {
+            return CarbonImmutable::parse($createdAt, 'Asia/Shanghai')
+                ->setTimezone('Asia/Shanghai')
+                ->toDateString();
+        } catch (\Exception) {
+            return '';
+        }
+    }
+
+    /**
+     * 解析历史账户日期，转换为标准业务日期。
+     *
+     * @param  string  $value  待归一化的原始值
+     * @return string|null 标准 Y-m-d 日期；格式或年月日无效时为 null
+     */
     private function date(string $value): ?string
     {
         if (!preg_match('/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/', $value, $parts)
@@ -147,7 +246,12 @@ class PaypalLegacyService
         return sprintf('%04d-%02d-%02d', $parts[1], $parts[2], $parts[3]);
     }
 
-    /** 无时区的导入日期按原页面的北京时间解释。 */
+    /**
+     * 无时区的导入日期按原页面的北京时间解释。
+     *
+     * @param  string  $value  待归一化的原始值
+     * @return int Unix 秒时间戳；空值或解析失败时为 0
+     */
     private function timestamp(string $value): int
     {
         if ($value === '') {

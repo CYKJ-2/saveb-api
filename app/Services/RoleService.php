@@ -24,8 +24,9 @@ class RoleService
     /**
      * 构造函数，注入角色与权限两个 DAO。
      *
-     * @param  RoleDao        $roleDao        角色数据访问对象
+     * @param  RoleDao  $roleDao  角色数据访问对象
      * @param  PermissionDao  $permissionDao  权限数据访问对象
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly RoleDao $roleDao, private readonly PermissionDao $permissionDao)
     {
@@ -34,11 +35,12 @@ class RoleService
     /**
      * 分页获取角色列表，支持关键字与状态过滤。
      *
-     * @param  int         $page      1-based 页码
-     * @param  int         $perPage   每页条数
-     * @param  string|null $keyword   模糊匹配 code/name/name_zh；为 null 不过滤
-     * @param  int|null    $status    状态过滤：1=启用，0=禁用；为 null 不过滤
-     * @return LengthAwarePaginator<Role>
+     * @param  int  $page  1-based 页码
+     * @param  int  $perPage  每页条数
+     * @param  string|null  $keyword  模糊匹配 code/name/name_zh；为 null 不过滤
+     * @param  int|null  $status  状态过滤：1=启用，0=禁用；为 null 不过滤
+     * @return LengthAwarePaginator<Role> 角色分页器，包含当前页记录、总条数和分页信息
+     * @see RoleDao::paginateList()
      */
     public function list(
         int $page,
@@ -53,7 +55,7 @@ class RoleService
      * 获取所有启用状态的角色（扁平列表），不分页。
      * 典型用途：下拉选择器数据源。
      *
-     * @return array<int, Role>
+     * @return array<int, Role> 全部启用角色模型的扁平数组，供选项框使用
      */
     public function all(): array
     {
@@ -65,9 +67,10 @@ class RoleService
     /**
      * 按 ID 获取角色详情（附带权限节点）。不存在时抛 404。
      *
-     * @param  int    $id  角色主键 ID
-     * @return Role
+     * @param  int  $id  角色主键 ID
+     * @return Role 角色模型实例
      * @throws SystemException
+     * @see RoleDao::findWithRelations()
      */
     public function find(int $id): Role
     {
@@ -83,8 +86,10 @@ class RoleService
      * 创建新角色。code 已存在时抛 422 + CODE_ROLE_ALREADY_EXISTS。
      *
      * @param  array  $data  角色字段（见 RoleController::store 的 schema）
-     * @return Role         新创建的角色
+     * @return Role 新创建的角色
      * @throws SystemException
+     * @see RoleDao::findByCode()
+     * @see RoleDao::create()
      */
     public function create(array $data): Role
     {
@@ -108,13 +113,16 @@ class RoleService
      * 更新已有角色。
      *
      * 规则：
-     *   - 内置角色（is_system=true）禁止改名（code 字段被丢弃）
+     *   - 内置角色（is_system=true）拒绝修改；普通角色的 code 字段不参与更新
      *   - 未传入的字段保持原值；显式传 null 的可空字段会被置空
      *
-     * @param  int    $id    角色主键 ID
+     * @param  int  $id  角色主键 ID
      * @param  array  $data  待更新字段
-     * @return Role         更新后的角色（含 permissions 关系）
+     * @return Role 更新后的角色（含 permissions 关系）
      * @throws SystemException  角色不存在
+     * @see RoleDao::find()
+     * @see RoleDao::updateWhere()
+     * @see RoleDao::findWithRelations()
      */
     public function update(int $id, array $data): Role
     {
@@ -154,7 +162,11 @@ class RoleService
      *   - 当前仍有活跃用户挂载时不可删
      *
      * @param  int  $id  角色主键 ID
+     * @return void 无返回值；副作用见方法说明
      * @throws SystemException  角色不存在 / 内置角色保护 / 仍有用户挂载
+     * @see RoleDao::find()
+     * @see RoleDao::countActiveUsers()
+     * @see RoleDao::deleteWhere()
      */
     public function delete(int $id): void
     {
@@ -175,10 +187,12 @@ class RoleService
      * 全量替换角色的权限分配。
      * 入参可同时包含权限节点 ID 与 code（混传时优先按 ID 处理）。
      *
-     * @param  int                  $roleId                角色主键 ID
-     * @param  array<int|string>    $permissionIdsOrCodes  权限节点 ID 或 code 列表
-     * @return Role                                       更新后的角色（含 permissions 关系）
+     * @param  int  $roleId  角色主键 ID
+     * @param  array<int|string>  $permissionIdsOrCodes  权限节点 ID 或 code 列表
+     * @return Role 更新后的角色（含 permissions 关系）
      * @throws SystemException  角色不存在
+     * @see RoleDao::find()
+     * @see RoleDao::findWithRelations()
      */
     public function assignPermissions(int $roleId, array $permissionIdsOrCodes): Role
     {
@@ -207,8 +221,10 @@ class RoleService
      * 获取某角色已分配的全部权限节点 ID 列表。
      *
      * @param  int  $roleId  角色主键 ID
-     * @return array{ permissions: array<int> }
+     * @return array{ permissions: array<int> } 角色结果数组；返回字段：permissions
      * @throws SystemException  角色不存在
+     * @see RoleDao::find()
+     * @see PermissionDao::permissionIdsForRole()
      */
     public function getAssignments(int $roleId): array
     {

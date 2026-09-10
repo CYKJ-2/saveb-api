@@ -32,8 +32,9 @@ class AuthService
     /**
      * 构造函数，注入用户与 token 两个 DAO。
      *
-     * @param  UserDao     $userDao   用户数据访问对象
-     * @param  ApiTokenDao $apiTokenDao  API token 数据访问对象
+     * @param  UserDao  $userDao  用户数据访问对象
+     * @param  ApiTokenDao  $apiTokenDao  API token 数据访问对象
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly UserDao $userDao, private readonly ApiTokenDao $apiTokenDao)
     {
@@ -42,16 +43,15 @@ class AuthService
     /**
      * 用用户名 + 密码尝试登录，成功后签发新的 API token。
      *
-     * @param  string      $username    登录用户名
-     * @param  string      $password    登录密码（明文）
-     * @param  string|null $ip          客户端 IP（写入审计日志与 token 行）
-     * @param  string|null $userAgent   客户端 UA（写入 token 行）
-     * @param  string|null $tokenName   token 自定义标签；为空时使用 UA 截断或 'api'
-     * @return array{
-     *     user: User,
-     *     token: array{id: int, plain: string, token_hash: string, expires_at: Carbon}
-     * }
+     * @param  string  $username  登录用户名
+     * @param  string  $password  登录密码（明文）
+     * @param  string|null  $ip  客户端 IP（写入审计日志与 token 行）
+     * @param  string|null  $userAgent  客户端 UA（写入 token 行）
+     * @param  string|null  $tokenName  token 自定义标签；为空时使用 UA 截断或 'api'
+     * @return array{ user: User, token: array{id: int, plain: string, token_hash: string, expires_at: Carbon} } 身份认证结果数组；返回字段：user、token
      * @throws SystemException  凭据无效或账户被禁用
+     * @see UserDao::findByUsername()
+     * @see ApiTokenDao::create()
      */
     public function attempt(
         string $username,
@@ -105,8 +105,10 @@ class AuthService
      * 校验明文 token 的有效性，并刷新最近使用时间。
      *
      * @param  string  $plain  Bearer token 明文
-     * @return ApiToken        有效 token 行（含 user 关系预加载）
+     * @return ApiToken 有效 token 行（含 user 关系预加载）
      * @throws SystemException  token 不存在或已过期
+     * @see ApiTokenDao::findValidByPlain()
+     * @see ApiTokenDao::touch()
      */
     public function validateToken(string $plain): ApiToken
     {
@@ -124,7 +126,9 @@ class AuthService
      * 撤销 token（登出）。过期的 token 视作已登出，按成功处理。
      *
      * @param  string  $plain  Bearer token 明文
-     * @return bool            true 表示处理成功（无论原 token 是否存在）
+     * @return bool true 表示处理成功（无论原 token 是否存在）
+     * @see ApiTokenDao::findValidByPlain()
+     * @see ApiTokenDao::deleteWhere()
      */
     public function logout(string $plain): bool
     {
@@ -153,7 +157,7 @@ class AuthService
      *
      * @param  string|null  $tokenName  显式标签
      * @param  string|null  $userAgent  UA 字符串
-     * @return string                    处理后的标签（≤100 字符）
+     * @return string 处理后的标签（≤100 字符）
      */
     private function resolveTokenName(?string $tokenName, ?string $userAgent): string
     {
@@ -174,11 +178,12 @@ class AuthService
     /**
      * 写入审计日志。写入失败仅记录 warning，不影响主业务。
      *
-     * @param  string      $action      操作类型，例如 'login' | 'logout'
-     * @param  string      $entityType  实体类型，例如 'session'
-     * @param  string      $entityId    实体 ID
-     * @param  int         $userId      操作人用户 ID
-     * @param  string|null $ip          客户端 IP
+     * @param  string  $action  操作类型，例如 'login' | 'logout'
+     * @param  string  $entityType  实体类型，例如 'session'
+     * @param  string  $entityId  实体 ID
+     * @param  int  $userId  操作人用户 ID
+     * @param  string|null  $ip  客户端 IP
+     * @return void 无返回值；副作用见方法说明
      */
     private function writeAudit(
         string $action,

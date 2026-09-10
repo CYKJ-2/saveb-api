@@ -18,6 +18,157 @@ use Tests\TestCase;
 
 class WorkbenchTest extends TestCase
 {
+    public function test_invoice_list_omits_raw_database_snapshot_but_detail_keeps_it(): void
+    {
+        $invoice = \App\Models\InvoiceOrder::create([
+            'order_number' => 'LIGHT-LIST', 'invoice_date' => '2026-09-01', 'order_date' => '2026-09-02',
+            'invoice_status' => 'Paid', 'amount_usd' => 125.50,
+            'raw' => ['screenshot' => str_repeat('image-data', 10000), 'note' => 'Original OCR'],
+        ]);
+        \App\Models\InvoiceItem::create(['invoice_id' => $invoice->id, 'product_name' => 'Shirt', 'quantity' => 2, 'price' => 60, 'notes' => 'Keep list fields']);
+        $dao = app(\App\Dao\InvoiceDao::class);
+        $service = app(\App\Services\InvoiceService::class);
+        $listInvoice = $dao->listing([])->items()[0];
+        $detail = $dao->find($invoice->id);
+        $this->assertArrayNotHasKey('raw', $listInvoice->getAttributes());
+        $this->assertSame('Original OCR', $detail->raw['note']);
+        $this->assertEquals($service->present($detail), $service->present($listInvoice));
+    }
+
+    public function test_scoped_paypal_activity_uses_global_cutoff_and_reads_only_selected_accounts(): void
+    {
+        $this->order(['order_time' => '2026-08-01T02:00:00Z', 'receiving_paypal' => ' SELECTED@example.test ', 'amount_usd' => 10]);
+        $this->order(['order_time' => '2026-08-03T02:00:00Z', 'receiving_paypal' => 'another@example.test', 'amount_usd' => 20]);
+        foreach (['2026-08-02', '2026-08-04'] as $date) {
+            $legacy = ['clientOrderId' => 'LEGACY-' . $date, 'recipientPaypal' => 'selected@example.test', 'paymentStatus' => 'completed', 'amount' => 30, 'currency' => 'USD', 'createTime' => $date . 'T12:00:00Z'];
+            \App\Models\LegacyDashboardDay::create(['day' => $date, 'source_sha256' => str_repeat('a', 64), 'source_size_bytes' => 1,
+                'snapshot_cutoff_asia_shanghai' => $date, 'payload' => ['orders' => [$legacy, $legacy]]]);
+        }
+        $service = app(\App\Services\PaypalActivityService::class);
+        $all = $service->groups();
+        $selected = $service->groups(['selected@example.test']);
+        $this->assertSame(['selected@example.test' => $all['selected@example.test']], $selected);
+        $this->assertSame(40.0, $selected['selected@example.test']['amount']);
+        $this->assertCount(2, $selected['selected@example.test']['orders']);
+        $this->assertSame([], $service->groups([]));
+        $this->assertSame([], $service->groups(['missing@example.test']));
+        $this->assertCount(1, collect(app(\App\Dao\PaypalActivityDao::class)->orders(['selected@example.test'])));
+    }
+
+    public function test_scoped_paypal_queries_preserve_legacy_duplicate_winners_and_equal_time_order(): void
+    {
+        foreach ([10, 25] as $amount) {
+            $this->order(['client_order_id' => 'REUSED', 'receiving_paypal' => 'duplicate@example.test', 'amount_usd' => $amount]);
+        }
+        // 同时刻的不同订单同样保留，并使用稳定的明细排序。
+        $this->order(['client_order_id' => 'SEPARATE', 'receiving_paypal' => 'duplicate@example.test', 'amount_usd' => 50]);
+        $service = app(\App\Services\PaypalActivityService::class);
+        $expected = $service->groups()['duplicate@example.test'];
+        $this->assertSame($expected, $service->groups(['duplicate@example.test'])['duplicate@example.test']);
+        $this->assertCount(2, $expected['orders']);
+    }
+
+    public function test_paypal_log_pages_match_exports_and_restore_account_names(): void
+    {
+        $account = \App\Models\PaypalAccount::create([
+            'email' => 'logs@example.test', 'account_name' => 'Current Account', 'active' => true, 'version' => 1,
+        ]);
+        $former = User::create(['username' => 'former-paypal-operator', 'display_name' => '', 'password_hash' => Hash::make('Test-123'), 'active' => 0]);
+        $former->delete();
+        for ($index = 1; $index <= 21; $index++) {
+            BusinessOperationLog::create([
+                'module' => 'paypal', 'entity_id' => (string) $account->id, 'action' => 'balance',
+                'actor_user_id' => $index === 21 ? $former->id : $this->admin->id,
+                'before' => ['balance' => 100], 'after' => ['accountName' => ' ', 'balance' => 99.9],
+                'created_at' => '2026-09-09 00:00:' . str_pad((string) $index, 2, '0', STR_PAD_LEFT),
+            ]);
+        }
+        // 历史日志只有邮箱、空白名称或保留旧名称；缺失财务快照不能用当前余额补写。
+        \App\Models\SystemState::create(['key' => 'paypal_legacy_state', 'value' => ['changeLogs' => [
+            ['createdAt' => '2026-09-09T01:00:00Z', 'email' => ' LOGS@EXAMPLE.TEST ', 'field' => 'Current Balance', 'action' => 'Withdrawal', 'previousValue' => 10, 'newValue' => 0, 'delta' => -10, 'updatedBy' => 'Legacy Operator'],
+            ['createdAt' => '2026-09-09T00:00:22Z', 'email' => 'logs@example.test', 'accountName' => 'Legacy, Recorded', 'field' => 'Number of Reviews', 'action' => 'review', 'previousValue' => 0, 'newValue' => 1, 'delta' => 1],
+            ['createdAt' => '2026-09-09T00:00:22Z', 'email' => 'logs@example.test', 'accountName' => ' ', 'action' => 'Baseline Repair'],
+            ['email' => 'unknown@example.test', 'accountName' => 'Archived Account', 'action' => 'custom_account'],
+        ]]]);
+        // 已停用/软删除的账户仍应保留日志中的名称，也不能将其他模块日志混入。
+        $account->update(['active' => false]);
+        $account->delete();
+        BusinessOperationLog::create(['module' => 'invoice', 'entity_id' => '100', 'action' => 'create', 'actor_user_id' => $this->admin->id]);
+
+        $fields = ['time', 'field', 'action', 'accountName', 'email', 'previous', 'current', 'delta', 'actor'];
+        foreach (['zh-CN', 'en-US'] as $locale) {
+            $first = $this->getJson('/api/workbench/paypal/logs?locale=' . $locale)->assertOk()
+                ->assertJsonCount(20, 'data.list')->assertJsonPath('data.total', 25)->assertJsonPath('data.per_page', 20)->json('data.list');
+            $second = $this->getJson('/api/workbench/paypal/logs?page=2&locale=' . $locale)->assertOk()
+                ->assertJsonCount(5, 'data.list')->json('data.list');
+            $rows = array_merge($first, $second);
+            $this->assertCount(25, array_unique(array_column($rows, 'id')));
+            $this->assertSame('2026-09-09 09:00:00', $rows[0]['time']);
+            $this->assertSame('Current Account', $rows[0]['accountName']);
+            $this->assertSame('Legacy Operator', $rows[0]['actor']);
+            $this->assertSame('0.00', $rows[0]['current']);
+            $this->assertSame('-10.00', $rows[0]['delta']);
+            $this->assertSame($locale === 'en-US' ? 'Withdrawal' : '提款', $rows[0]['action']);
+            $byId = collect($rows)->keyBy('id');
+            $this->assertSame('Legacy, Recorded', $byId['legacy:2']['accountName']);
+            $this->assertSame('1', $byId['legacy:2']['current']);
+            $this->assertSame('Current Account', $byId['legacy:3']['accountName']);
+            $this->assertSame('', $byId['legacy:3']['previous']);
+            $this->assertSame('', $byId['legacy:3']['delta']);
+            $this->assertSame('legacy:4', $rows[24]['id']);
+            $local = array_values(array_filter($rows, fn ($row) => str_starts_with($row['id'], 'local:')));
+            $this->assertSame('former-paypal-operator', $local[0]['actor']);
+            $this->assertSame('Admin', $local[1]['actor']);
+            $this->assertSame('Current Account', $local[0]['accountName']);
+            $this->assertSame('logs@example.test', $local[0]['email']);
+            $this->assertSame('99.90', $local[0]['current']);
+
+            $csv = $this->get('/api/workbench/paypal/logs/export?page=2&per_page=20&locale=' . $locale)->assertOk()->streamedContent();
+            $lines = array_map(fn ($line) => str_getcsv($line, ',', '"', ''), explode("\r\n", rtrim(substr($csv, 3), "\r\n")));
+            $headers = array_shift($lines);
+            $this->assertSame($locale === 'en-US' ? 'Account Name' : '账号名', $headers[3]);
+            $this->assertCount(25, $lines);
+            $this->assertSame(array_map(fn ($row) => array_map(fn ($key) => $row[$key], $fields), $rows), $lines);
+        }
+        $this->getJson('/api/workbench/paypal/logs?per_page=50')->assertOk()->assertJsonCount(25, 'data.list');
+        $this->getJson('/api/workbench/paypal/logs?page=0')->assertUnprocessable();
+        $this->getJson('/api/workbench/paypal/logs?per_page=101')->assertUnprocessable();
+        $this->getJson('/api/workbench/paypal/logs?locale=invalid')->assertUnprocessable();
+    }
+
+    public function test_paypal_withdrawal_business_dates_match_filters_charts_and_exports(): void
+    {
+        $account = \App\Models\PaypalAccount::create(['email' => 'date@example.test', 'active' => true, 'version' => 1, 'meta' => []]);
+        // 同一笔历史流水同时存在于旧共享状态和流水表，不能因修复日期而重复计算。
+        \App\Models\PaypalWithdrawal::create(['account_id' => $account->id, 'amount' => 10, 'withdrawn_at' => '2026-09-07']);
+        \App\Models\SystemState::create(['key' => 'paypal_legacy_state', 'value' => [
+            'balances' => ['date@example.test' => ['base' => 100, 'baselineReceived' => 0, 'updatedAt' => '2026-08-01T00:00:00Z']],
+            'withdrawals' => ['date@example.test' => ['entries' => [
+                ['amount' => 10, 'date' => '2026-09-07', 'createdAt' => '2026-09-06T23:04:49.562Z'],
+                ['amount' => 20, 'createdAt' => '2026-09-06T23:07:54.843Z'],
+                ['amount' => 30, 'date' => '2026-09-05', 'createdAt' => '2026-09-06T23:13:04.522Z'],
+            ]]],
+        ]]);
+        app(\App\Services\PaypalLegacyService::class)->restore([
+            'totalWithdrewImportedAt' => '2026-07-01 07:45:14',
+            'rows' => [['email' => 'date@example.test', 'accountName' => 'Date test', 'importedTotalWithdrew' => 0]],
+        ], true);
+
+        $query = 'startDate=2026-09-07&endDate=2026-09-07';
+        $this->getJson('/api/workbench/paypal/withdrawals?' . $query)->assertOk()
+            ->assertJsonCount(2, 'data.list')->assertJsonPath('data.amount', 30)
+            ->assertJsonPath('data.list.0.date', '2026-09-07');
+        $this->getJson('/api/workbench/paypal/withdrawals?startDate=2026-09-06&endDate=2026-09-06')
+            ->assertOk()->assertJsonCount(0, 'data.list');
+        $this->getJson('/api/workbench/paypal/statistics?mode=daily&' . $query)
+            ->assertOk()->assertJsonPath('data.0.period', '2026-09-07')->assertJsonPath('data.0.amount', 30);
+        $csv = $this->get('/api/workbench/paypal/withdrawals/export?locale=en-US&' . $query)->assertOk()->streamedContent();
+        $this->assertSame(2, substr_count($csv, '2026-09-07'));
+        $this->assertStringNotContainsString('2026-09-06', $csv);
+        $this->getJson('/api/workbench/paypal/withdrawals')->assertOk()->assertJsonPath('data.count', 3)->assertJsonPath('data.amount', 60);
+        $this->getJson('/api/workbench/paypal')->assertOk()->assertJsonPath('data.list.0.balance', 40)->assertJsonPath('data.list.0.withdrawn', 60);
+    }
+
     public function test_warehouse_paging_and_procurement_available_filter_precede_slicing(): void
     {
         for ($index = 1; $index <= 25; $index++) {
@@ -74,6 +225,132 @@ class WorkbenchTest extends TestCase
             ->assertJsonPath('data.summary.influencers', 25);
         $this->getJson('/api/workbench/procurement')->assertOk()->assertJsonCount(20, 'data.list')->assertJsonPath('data.total', 50);
         $this->getJson('/api/workbench/procurement?page=2&per_page=50')->assertOk()->assertJsonPath('data.page', 1)->assertJsonCount(50, 'data.list');
+    }
+
+    public function test_invoice_log_list_matches_exports_and_resolves_operator_names(): void
+    {
+        $deleted = BusinessOperationLog::create([
+            'module' => 'invoice', 'entity_id' => '975', 'action' => 'delete', 'actor_user_id' => $this->admin->id,
+            'before' => ['order_number' => 'INV-975', 'customer_full_name' => 'Example Buyer'],
+            'created_at' => '2026-09-09T08:01:35Z',
+        ]);
+        $legacy = BusinessOperationLog::create([
+            'module' => 'invoice', 'entity_id' => '976', 'action' => 'update', 'actor_user_id' => $this->admin->id,
+            'after' => ['legacyInvoiceOperationLog' => [
+                'operationTime' => '2026-09-08T23:05:00Z', 'operator' => 'Legacy Operator', 'action' => 'update',
+                'orderNumber' => 'INV-976', 'customerFullName' => 'Legacy Buyer', 'changedFields' => ['Amount', 'Status'],
+                'details' => 'Amount: 10 -> 20', 'recordId' => 'legacy-976',
+            ]],
+        ]);
+        $ocr = BusinessOperationLog::create([
+            'module' => 'invoice', 'entity_id' => '156225', 'action' => 'ocr', 'actor_user_id' => $this->admin->id,
+            'after' => ['blocks' => 12, 'engine' => 'example', 'legacyInvoiceOperationLog' => ['operator' => '']],
+        ]);
+        $former = User::create(['username' => 'former-operator', 'display_name' => '', 'password_hash' => Hash::make('Test-123'), 'active' => 0]);
+        $former->delete();
+        $formerLog = BusinessOperationLog::create(['module' => 'invoice', 'entity_id' => '977', 'action' => 'create', 'actor_user_id' => $former->id]);
+        $fields = ['operationTime', 'operator', 'actionLabel', 'orderNumber', 'customer', 'changedFields', 'details', 'recordId'];
+
+        foreach (['zh-CN', 'en-US'] as $locale) {
+            $rows = $this->getJson('/api/workbench/invoices/logs?locale=' . $locale)->assertOk()
+                ->assertJsonCount(4, 'data.data')->assertJsonPath('data.per_page', 20)->json('data.data');
+            $byId = collect($rows)->keyBy('id');
+            $this->assertSame('Admin', $byId[$deleted->id]['operator']);
+            $this->assertSame('2026-09-09 16:01:35', $byId[$deleted->id]['operationTime']);
+            $this->assertSame('INV-975', $byId[$deleted->id]['orderNumber']);
+            $this->assertSame('Example Buyer', $byId[$deleted->id]['customer']);
+            $this->assertSame('delete', $byId[$deleted->id]['action']);
+            $this->assertSame('Legacy Operator', $byId[$legacy->id]['operator']);
+            $this->assertSame('2026-09-09 07:05:00', $byId[$legacy->id]['operationTime']);
+            $this->assertSame('Amount | Status', $byId[$legacy->id]['changedFields']);
+            $this->assertSame('legacy-976', $byId[$legacy->id]['recordId']);
+            $this->assertSame('Admin', $byId[$ocr->id]['operator']);
+            $this->assertSame('', $byId[$ocr->id]['orderNumber']);
+            $this->assertSame('156225', $byId[$ocr->id]['recordId']);
+            $this->assertSame($locale === 'en-US' ? 'Invoice recognition' : 'Invoice 截图识别', $byId[$ocr->id]['actionLabel']);
+            $this->assertSame('former-operator', $byId[$formerLog->id]['operator']);
+
+            $csv = $this->get('/api/workbench/invoices/logs/export?locale=' . $locale . '&page=2&per_page=1')->assertOk()->streamedContent();
+            $lines = array_map(fn ($line) => str_getcsv($line, ',', '"', ''), explode("\r\n", rtrim(substr($csv, 3), "\r\n")));
+            $this->assertSame($locale === 'en-US'
+                ? ['Operation Time', 'Operator', 'Action', 'Order Number', 'Customer', 'Changed Fields', 'Details', 'Record ID']
+                : ['操作时间', '操作人', '操作', '订单号', '客户', '变更字段', '详情', '记录ID'], array_shift($lines));
+            $this->assertSame(array_map(fn ($row) => array_map(fn ($field) => $row[$field], $fields), $rows), $lines);
+        }
+
+        $first = $this->getJson('/api/workbench/invoices/logs?per_page=2')->assertOk()->assertJsonCount(2, 'data.data')->json('data.data');
+        $second = $this->getJson('/api/workbench/invoices/logs?per_page=2&page=2')->assertOk()->assertJsonCount(2, 'data.data')->json('data.data');
+        $this->assertSame([], array_intersect(array_column($first, 'id'), array_column($second, 'id')));
+    }
+
+    public function test_invoice_logs_keep_separate_read_and_export_permissions(): void
+    {
+        $this->loginWith(['business.invoice.list']);
+        $this->getJson('/api/workbench/invoices/logs')->assertForbidden();
+        $this->getJson('/api/workbench/invoices/logs/export')->assertForbidden();
+        $this->loginWith(['business.invoice.logs']);
+        $this->getJson('/api/workbench/invoices/logs')->assertOk();
+        $this->getJson('/api/workbench/invoices/logs/export')->assertForbidden();
+        $this->getJson('/api/workbench/invoices/logs?locale=invalid')->assertUnprocessable();
+        $this->getJson('/api/workbench/invoices/logs?page=0')->assertUnprocessable();
+        $this->loginWith(['business.invoice.logs', 'business.invoice.export']);
+        $this->getJson('/api/workbench/invoices/logs/export?locale=en-US')->assertOk();
+    }
+
+    public function test_procurement_log_list_and_exports_resolve_the_same_operator_names(): void
+    {
+        $account = User::create(['username' => 'purchaser-login', 'display_name' => '  ', 'password_hash' => Hash::make('Test-123'), 'active' => 1]);
+        $former = User::create(['username' => 'former-purchaser', 'display_name' => '历史采购员', 'password_hash' => Hash::make('Test-123'), 'active' => 0]);
+        $former->delete();
+        $expected = [];
+        foreach ([[$this->admin->id, 'Admin'], [$account->id, 'purchaser-login'], [$former->id, '历史采购员'], [999999, '#999999']] as $index => [$actor, $name]) {
+            $log = BusinessOperationLog::create(['module' => 'procurement', 'entity_id' => 'purchase-' . $index, 'action' => 'update', 'actor_user_id' => $actor]);
+            $expected[$log->entity_id] = $name;
+        }
+        BusinessOperationLog::create(['module' => 'warehouse', 'entity_id' => 'warehouse-1', 'action' => 'update', 'actor_user_id' => $former->id]);
+        BusinessOperationLog::create(['module' => 'invoice', 'entity_id' => 'unrelated-invoice', 'action' => 'update', 'actor_user_id' => $this->admin->id]);
+
+        $rows = $this->getJson('/api/workbench/procurement/logs')->assertOk()
+            ->assertJsonCount(4, 'data.data')->assertJsonPath('data.total', 4)->assertJsonPath('data.per_page', 20)->json('data.data');
+        foreach ($rows as $row) {
+            $this->assertSame($expected[$row['entity_id']], $row['operator']);
+            $this->assertArrayHasKey('actor_user_id', $row);
+        }
+        $first = $this->getJson('/api/workbench/procurement/logs?per_page=2')->assertOk()->assertJsonCount(2, 'data.data')->json('data.data');
+        $second = $this->getJson('/api/workbench/procurement/logs?per_page=2&page=2')->assertOk()->assertJsonCount(2, 'data.data')->json('data.data');
+        $this->assertSame([], array_intersect(array_column($first, 'id'), array_column($second, 'id')));
+
+        foreach (['zh-CN', 'en-US'] as $locale) {
+            $csv = $this->get('/api/workbench/procurement/logs/export?locale=' . $locale . '&page=2&per_page=1')->assertOk()->streamedContent();
+            $lines = array_map(fn ($line) => str_getcsv($line, ',', '"', ''), explode("\r\n", rtrim(substr($csv, 3), "\r\n")));
+            $this->assertSame($locale === 'en-US'
+                ? ['Operation Time', 'Action', 'Entity', 'Record ID', 'Operator']
+                : ['操作时间', '操作', '对象', '记录ID', '操作人'], array_shift($lines));
+            $this->assertCount(5, $lines);
+            $exported = array_column($lines, 4, 3);
+            foreach ($expected as $entityId => $operator) {
+                $this->assertSame($operator, $exported[$entityId]);
+            }
+            $this->assertSame('历史采购员', $exported['warehouse-1']);
+            $this->assertArrayNotHasKey('unrelated-invoice', $exported);
+        }
+    }
+
+    public function test_procurement_log_names_require_log_and_export_permissions(): void
+    {
+        $this->loginWith(['business.procurement.list']);
+        $this->getJson('/api/workbench/procurement/logs')->assertForbidden();
+        $this->getJson('/api/workbench/procurement/logs/export')->assertForbidden();
+        $this->loginWith(['business.procurement.logs']);
+        $this->getJson('/api/workbench/procurement/logs')->assertOk();
+        $this->getJson('/api/workbench/procurement/logs/export')->assertForbidden();
+        $this->getJson('/api/workbench/procurement/logs?page=0')->assertUnprocessable();
+        $this->getJson('/api/workbench/procurement/logs?per_page=101')->assertUnprocessable();
+        $this->loginWith(['business.procurement.export']);
+        $this->getJson('/api/workbench/procurement/logs/export')->assertForbidden();
+        $this->loginWith(['business.procurement.logs', 'business.procurement.export']);
+        $this->getJson('/api/workbench/procurement/logs')->assertOk();
+        $this->getJson('/api/workbench/procurement/logs/export')->assertOk();
     }
 
     public function test_exports_restore_source_columns_languages_and_all_filtered_rows(): void
@@ -618,7 +895,7 @@ class WorkbenchTest extends TestCase
         (require database_path('migrations/2026_09_08_180000_add_paypal_monitor_permissions.php'))->up();
         $this->assertSame('自定义统计名称', $permission->fresh()->name_zh);
         $this->loginWith(['business.paypal.list']);
-        foreach (['withdrawals', 'statistics?mode=daily', 'logs/export', 'orders/export?email=sales@example.test'] as $path) {
+        foreach (['withdrawals', 'statistics?mode=daily', 'logs', 'logs/export', 'orders/export?email=sales@example.test'] as $path) {
             $this->getJson('/api/workbench/paypal/' . $path)->assertForbidden();
         }
         $this->loginWith(['business.paypal.withdrawals']);
@@ -629,6 +906,7 @@ class WorkbenchTest extends TestCase
         $this->getJson('/api/workbench/paypal/statistics?mode=monthly')->assertOk();
         $this->getJson('/api/workbench/paypal/withdrawals')->assertForbidden();
         $this->loginWith(['business.paypal.logs']);
+        $this->getJson('/api/workbench/paypal/logs')->assertOk();
         $this->get('/api/workbench/paypal/logs/export')->assertOk();
         $this->get('/api/workbench/paypal/export')->assertForbidden();
         $this->loginWith(['business.paypal.orders_export']);

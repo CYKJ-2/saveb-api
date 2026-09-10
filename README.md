@@ -1,4 +1,6 @@
-# SAVEB API 本地运行
+# SAVEB API
+
+**日常只维护根目录 `.env` 和 `nginx.conf`。** 本地与生产共用这两个配置入口；旧 `build/` 和环境切换符号链接已移除。首次配置、生产参数及配置生效方式见 [配置说明](CONFIGURATION.md)，服务器自动发布见 [AUTODEPLOY.md](AUTODEPLOY.md)。
 
 Docker Desktop 重装后的环境已于 2026-09-07 恢复。后端为 PHP 8.3 / Laravel，数据库为 PostgreSQL 16，缓存为 Redis 7，由 Nginx 提供 HTTP 服务。
 
@@ -16,11 +18,25 @@ Docker Desktop 重装后的环境已于 2026-09-07 恢复。后端为 PHP 8.3 / 
 | --- | --- |
 | API | http://localhost:8080 |
 | 健康检查 | http://localhost:8080/up |
+| 接口文档预览 | http://localhost:8080/api-docs/index.html |
 | PostgreSQL | 127.0.0.1:5433 |
 | Redis | 127.0.0.1:6380 |
 | 本次恢复的 saveb-admin | http://127.0.0.1:3001/dashboard/overview |
 
 数据库名及用户沿用本地 `.env` 的 `test`，密码以该文件为准。数据库、Redis、附件分别保存在项目命名卷中；当前本地配置不依赖旧 saveb-erp 网络或卷。
+
+## 接口说明文档
+
+打开 [接口文档预览](http://localhost:8080/api-docs/index.html)，或直接用浏览器打开 [离线 HTML](public/api-docs/index.html)。文档包含实际路由、认证权限、路径/查询/请求体参数、字段校验、嵌套返回结构、虚构调用示例、错误码与 CSV 表头；支持搜索、方法筛选、明暗切换和 OpenAPI 下载。
+
+接口变更后重新生成并检查：
+
+```powershell
+docker exec saveb-api-app php scripts/generate-api-docs.php
+docker exec saveb-api-app php scripts/check-api-docs.php
+```
+
+也可使用 `composer docs:generate` 与 `composer docs:check`。查看 [维护与调用说明](docs/API-DOCUMENTATION.md) 和 [OpenAPI JSON](public/api-docs/openapi.json)。
 
 ## 全新空库初始化
 
@@ -79,7 +95,7 @@ docker exec saveb-api-app php artisan db:seed --class=RbacSeeder
 .\scripts\start-local.ps1 -Build -BuildProxy http://host.docker.internal:7890
 ```
 
-本地使用 `build/Dockerfile.local`，代码挂载、OPcache 实时检查修改；生产配置仍使用 `build/Dockerfile`。Redis PHP 扩展固定为 [PECL redis 6.3.0](https://pecl.php.net/package/redis/6.3.0)。
+本地和生产统一使用 `Dockerfile`：本地选择 `development` 阶段，代码挂载、OPcache 实时检查修改；生产选择默认的 `production` 阶段，安装非 dev 依赖。Redis PHP 扩展固定为 [PECL redis 6.3.0](https://pecl.php.net/package/redis/6.3.0)。
 
 已有基线只运行增量迁移：
 
@@ -91,7 +107,7 @@ docker exec saveb-api-app php artisan db:seed --class=RbacSeeder
 停止服务使用相同 Compose 文件，不删除数据卷：
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.local.yml down
+docker compose -f docker-compose.yml down
 ```
 
 ## 验证与代码风格
@@ -120,11 +136,11 @@ docker exec saveb-api-app php vendor/bin/pint --config=pint.json --test app/Cont
 
 2026-09-07 已按用户要求从线上 phase4 库导入全部非 RBAC 表，共 45 张表、23,183 条记录，本地账号和授权保留；详见 [数据导入记录](DATABASE-IMPORT-20260907.md)。已恢复 961 个内嵌附件文件，另有 2,342 个文件需要原服务器附件存储。OCR 是原 ERP 的独立服务，仍需配置 `BUSINESS_OCR_URL` 并接入相同附件卷后才能使用。
 
-生产部署说明保留在 `build/docker/README.md`。
+当前配置说明见 [CONFIGURATION.md](CONFIGURATION.md)，生产应用只使用 `docker-compose.server.yml`，不与根目录本地 Compose 合并。
 # GitHub 源码与本地文件
 
-生产自动发布请使用 [GitHub Actions + GHCR 自动发布与回滚](AUTODEPLOY.md)。新的入口为 `.github/workflows/release.yml` 和 `deploy/`；服务器准备完成并配置 `DEPLOY_ENABLED=true` 后，推送 main 自动部署。
+服务器自动发布见 [AUTODEPLOY.md](AUTODEPLOY.md)：本地 push main → GitHub 云端测试/构建 → GHCR → 内网 runner 拉镜像部署和健康检查。首次数据迁移及固定端口见 [SERVER-DEPLOY.md](SERVER-DEPLOY.md)。真实 .env、nginx.conf 和业务数据由服务器独立维护。
 
-上传源码时保留 `build/`（它是 Docker、Nginx 和启动脚本源码，不是编译产物）、迁移、测试、文档及 `composer.lock`。真实 `.env`、`build/env/*.env`、`vendor/`、`.erp-sync/`、运行日志和业务附件由 Git 忽略，保留在本地。环境模板和初始化说明见 [build/README.md](build/README.md)。
+上传源码时保留根目录 `nginx.conf`、`.env.example`、`docker-compose.yml`、`docker-compose.server.yml`、`docker-compose.infra.yml`、`Dockerfile`、`docker/`、`automation/`、`.github/workflows/release.yml`、迁移、测试、文档及 `composer.lock`。真实 `.env`、`.config-backup/`、`vendor/`、`.erp-sync/`、运行日志和业务附件由 Git/Docker 忽略。唯一环境模板是根目录 `.env.example`；已有 `.env` 不要覆盖。
 
 `scripts/test_auth.php` 和 `scripts/test_access_log.php` 是手动诊断工具，运行时须通过进程环境提供 `SAVEB_TEST_USERNAME`、`SAVEB_TEST_PASSWORD`；源码不内置登录凭据。

@@ -26,6 +26,7 @@ storage/app/public/*
 # Laravel bootstrap cache（仅排除缓存文件，保留 .gitignore）
 bootstrap/cache/packages.php
 bootstrap/cache/services.php
+bootstrap/cache/*.php
 database/factories/*.local.php
 database/seeders/*.local.php
 tests/coverage
@@ -40,14 +41,10 @@ public/hot
 
 # ── Docker / compose / 自身 ────────────────────────────
 docker-compose*.yml
-build/docker
-build/env
-build/README.md
 
 # README / docs（可选：想塞进镜像的话删这一段）
 README.md
 *.md
-!build/Dockerfile
 
 # OS junk
 .DS_Store
@@ -69,3 +66,23 @@ vendor
 *.pem
 *.key
 storage/app/*
+
+# Server-only deployment files
+.ghcr-auth-*
+incoming-*
+releases
+current
+previous
+pending
+releases.log
+pre-migrate.sh
+.config-backup
+build
+nginx.conf
+
+# 自动发布的服务器就绪标记与原子状态临时文件
+.deploy-ready
+.current.tmp
+.previous.tmp
+.pending.tmp
+automation

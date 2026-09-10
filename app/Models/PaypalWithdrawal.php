@@ -28,7 +28,7 @@ class PaypalWithdrawal extends BaseModel
     /**
      * 提款所属账户，用于记录列表的账号名与邮箱。
      *
-     * @return BelongsTo<PaypalAccount, $this>
+     * @return BelongsTo<PaypalAccount, $this> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function account(): BelongsTo
     {

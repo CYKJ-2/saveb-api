@@ -8,6 +8,12 @@ namespace App\Services;
  */
 class InvoiceOcrParserService
 {
+    /**
+     * 解析截图或粘贴文本，提取客户、商品、金额与付款状态建议。
+     *
+     * @param  string  $text  截图识别或粘贴得到的原始文本
+     * @return array 识别建议 fields、currency、sourceAmount、paymentStatus 和 warnings
+     */
     public function parse(string $text): array
     {
         // Tesseract 的中文输出会在汉字间插空格；旧 PayPal 截图还常把 US$ 读成 USS。
@@ -51,12 +57,26 @@ class InvoiceOcrParserService
         ];
     }
 
+    /**
+     * 提取正则表达式指定捕获组，并去除首尾空白。
+     *
+     * @param  string  $pattern  包含分隔符的正则表达式
+     * @param  string  $text  截图识别或粘贴得到的原始文本
+     * @param  int  $group  正则捕获组序号；0 表示完整匹配；默认 1
+     * @return string 指定捕获组文本；未匹配返回空字符串
+     */
     private function capture(string $pattern, string $text, int $group = 1): string
     {
         return preg_match($pattern, $text, $matches) ? trim($matches[$group] ?? '') : '';
     }
 
-    /** 买方只从 Bill To / Ship To 或明确客户标签取值，不能把卖方邮箱当客户。 */
+    /**
+     * 买方只从 Bill To / Ship To 或明确客户标签取值，不能把卖方邮箱当客户。
+     *
+     * @param  array  $lines  按视觉顺序拆分并去除空白的文本行
+     * @param  string  $text  截图识别或粘贴得到的原始文本
+     * @return array 有文本依据的客户姓名、邮箱、电话、国家、地址及收款邮箱建议
+     */
     private function customerFields(array $lines, string $text): array
     {
         $fields = [];
@@ -114,7 +134,12 @@ class InvoiceOcrParserService
         return $fields;
     }
 
-    /** 采用明确下单/开票日期，避免把到期日期当成下单日期。 */
+    /**
+     * 采用明确下单/开票日期，避免把到期日期当成下单日期。
+     *
+     * @param  string  $text  截图识别或粘贴得到的原始文本
+     * @return string|null 标准 Y-m-d 订单日期；未识别或日期无效时为 null
+     */
     private function orderDate(string $text): ?string
     {
         $value = $this->capture('/^(?:order\s*date|date\s*ordered|订单日期|下单日期)\s*[:：]?\s*([^\n]+)/imu', $text)
@@ -135,7 +160,12 @@ class InvoiceOcrParserService
         return $timestamp !== false ? date('Y-m-d', $timestamp) : null;
     }
 
-    /** 已付金额优先，其次 Invoice Total；不从商品单价或未付余额猜测总额。 */
+    /**
+     * 已付金额优先，其次 Invoice Total；不从商品单价或未付余额猜测总额。
+     *
+     * @param  array  $lines  按视觉顺序拆分并去除空白的文本行
+     * @return array 已付或订单总金额与币种二元组，未知部分为 null
+     */
     private function paidAmount(array $lines): array
     {
         foreach (['paid\s*total|total\s*paid|amount\s*paid|paid\s*amount|已付(?:款)?(?:总额|金额)', 'invoice\s*total|grand\s*total|order\s*amount|订单金额|total|总计|合计|共计'] as $label) {
@@ -157,6 +187,12 @@ class InvoiceOcrParserService
         return [null, null];
     }
 
+    /**
+     * 从文本提取金额及币种，无法识别时返回空值。
+     *
+     * @param  string  $text  截图识别或粘贴得到的原始文本
+     * @return array|null 金额与币种二元组；无法识别时返回 null
+     */
     private function money(string $text): ?array
     {
         $number = '([0-9][0-9,]*(?:\.[0-9]{1,2})?)';
@@ -176,7 +212,13 @@ class InvoiceOcrParserService
         return [(float) str_replace(',', '', $value), ['US$' => 'USD', '$' => 'USD', '£' => 'GBP', '€' => 'EUR'][$symbol] ?? $symbol];
     }
 
-    /** 读取明细行里的数量、单价和行金额；折扣、运费、总额不进入商品列表。 */
+    /**
+     * 读取明细行里的数量、单价和行金额；折扣、运费、总额不进入商品列表。
+     *
+     * @param  array  $lines  按视觉顺序拆分并去除空白的文本行
+     * @param  string|null  $currency  金额币种代码；null 表示尚未识别
+     * @return array 识别到的商品明细列表；折扣与运费不生成实物商品
+     */
     private function items(array $lines, ?string $currency): array
     {
         $items = [];
@@ -247,7 +289,14 @@ class InvoiceOcrParserService
         return array_slice($items, 0, 100);
     }
 
-    /** 返回卡片商品及已消费行数；抵扣/运费卡片会被消费，但不会生成商品。 */
+    /**
+     * 返回卡片商品及已消费行数；抵扣/运费卡片会被消费，但不会生成商品。
+     *
+     * @param  array  $lines  按视觉顺序拆分并去除空白的文本行
+     * @param  int  $index  当前商品卡片在文本行数组中的起始下标
+     * @param  string|null  $currency  金额币种代码；null 表示尚未识别
+     * @return array|null 商品与已消费行数；不是商品卡片时返回 null
+     */
     private function cardItem(array $lines, int $index, ?string $currency): ?array
     {
         $title = $lines[$index];
@@ -282,12 +331,24 @@ class InvoiceOcrParserService
         return ['item' => $item, 'consumed' => $consumed];
     }
 
-    /** 抵扣和运费参与订单金额，不作为实物商品录入。 */
+    /**
+     * 抵扣和运费参与订单金额，不作为实物商品录入。
+     *
+     * @param  string  $name  当前业务对象的名称
+     * @return bool 名称属于折扣、抵扣、运费或包装调整项时为 true
+     */
     private function isAdjustment(string $name): bool
     {
         return (bool) preg_match('/^(?:(?:store\s*credit|discount|shipping|delivery|credit|coupon|no\s*box|gift\s*box)\b|折扣|运费|抵扣)/iu', $name);
     }
 
+    /**
+     * 识别加急运输、礼盒及折扣等 Invoice 表单选项。
+     *
+     * @param  string  $text  截图识别或粘贴得到的原始文本
+     * @param  string|null  $currency  金额币种代码；null 表示尚未识别
+     * @return array 识别到的加急、礼盒、固定折扣和百分比折扣字段
+     */
     private function options(string $text, ?string $currency): array
     {
         $fields = [];
@@ -317,6 +378,12 @@ class InvoiceOcrParserService
         return $fields;
     }
 
+    /**
+     * 将截图付款状态映射到 Invoice 表单支持的状态枚举。
+     *
+     * @param  string  $text  截图识别或粘贴得到的原始文本
+     * @return string|null Paid、Pending、Overdue、Unpaid、Refunded 或 Failed；未知为 null
+     */
     private function paymentStatus(string $text): ?string
     {
         // 优先采用明确状态，避免将 Pending、Failed 等遗漏后保留表单旧的 Paid。

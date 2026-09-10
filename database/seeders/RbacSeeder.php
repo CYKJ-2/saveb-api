@@ -57,6 +57,7 @@ class RbacSeeder extends Seeder
             $this->saveActions($ordersId, 'system.order', self::ORDER_ACTIONS);
             $this->seedBusinessPages($businessId);
             $this->seedSystemPages($systemId);
+            $this->call(InspectionMenuSeeder::class);
 
             // 旧版订单入口已合并到订单管理；保留记录和授权关联以便追溯。
             DB::table('permissions')->whereIn('code', ['orders', 'orders.list', 'dashboard.view'])->update([
@@ -78,6 +79,7 @@ class RbacSeeder extends Seeder
                 $this->grantPermissions($roles['viewer']['id'], DB::table('permissions')->whereIn('code', $viewerCodes)->pluck('id')->all());
             }
             $this->ensureSuperAdmin($roles['super_admin']['id']);
+            $this->call(PermissionNameSeeder::class);
         });
 
         $counts = DB::table('permissions')->where('status', 1)->whereNull('deleted_at')

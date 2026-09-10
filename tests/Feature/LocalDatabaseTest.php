@@ -61,8 +61,11 @@ class LocalDatabaseTest extends TestCase
     public function test_permissions_cover_routes_and_reseeding_preserves_existing_grants(): void
     {
         $permissions = DB::table('permissions')->orderBy('id')->get()->keyBy('code');
-        $this->assertCount(82, $permissions);
-        $this->assertCount(15, $permissions->where('type', 'menu'));
+        // 权限目录会随功能增加；验证必需入口及下方路由覆盖，不固定历史总数。
+        $this->assertSame('menu', $permissions['dashboard.collector']->type);
+        $this->assertSame($permissions['system']->id, $permissions['dashboard.collector']->parent_id);
+        $this->assertSame('/system/collector', $permissions['dashboard.collector']->path);
+        $this->assertSame('menu', $permissions['inspection']->type);
         $this->assertSame($permissions['business']->id, $permissions['dashboard.order_management']->parent_id);
         $this->assertSame('/workbench/order-management', $permissions['dashboard.order_management']->path);
         $this->assertSame('workbench/order-management/index', $permissions['dashboard.order_management']->component);

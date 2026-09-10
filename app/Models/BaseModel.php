@@ -40,7 +40,7 @@ abstract class BaseModel extends Model
      * 把日期字段序列化为 Unix 时间戳整数。
      *
      * @param  DateTimeInterface  $date  Eloquent 提供的日期对象
-     * @return int|string                时间戳
+     * @return int|string 时间戳
      */
     protected function serializeDate(DateTimeInterface $date): int|string
     {

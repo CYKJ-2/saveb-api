@@ -1,31 +1,11 @@
-#!/bin/bash
-# SAVEB ERP - 启动所有服务 (Linux/macOS)
-
-echo "========================================"
-echo "  SAVEB ERP - 启动所有服务"
-echo "========================================"
-echo ""
-
-echo "[1/4] 启动后端服务 (saveb-api)..."
-docker compose up -d
-
-echo "[2/4] 配置 Laravel..."
-docker compose exec app php artisan key:generate
-docker compose exec app php artisan migrate
-docker compose exec app php artisan vendor:publish --provider="Laravel\Sanctum\SanctumServiceProvider"
-
-echo ""
-echo "[3/4] 启动前端服务 (saveb-web)..."
-cd ../saveb-web
-docker compose up
-
-echo ""
-echo "========================================"
-echo "  服务状态"
-echo "========================================"
-echo ""
-echo "后端 API:  http://localhost:8080"
-echo "前端页面:  http://localhost:5173"
-echo "数据库:    localhost:5432"
-echo "Redis:     localhost:6379"
-echo ""
+#!/usr/bin/env bash
+# 本地开发唯一启动入口，不操作其他项目，不执行迁移或重置 APP_KEY。
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+[[ -f .env ]] || { echo 'Copy .env.example to .env and configure it first.'; exit 65; }
+if ! grep -Eq "^[[:space:]]*APP_ENV[[:space:]]*=[[:space:]]*['\"]?local['\"]?[[:space:]]*(#.*)?$" .env; then
+    echo 'This command is for APP_ENV=local only. Use the release workflow for production.'
+    exit 65
+fi
+docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml ps

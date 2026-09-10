@@ -28,6 +28,7 @@ class RoleController extends BaseController
      * 构造函数，注入角色服务层。
      *
      * @param  RoleService  $roleService  角色业务服务
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly RoleService $roleService)
     {
@@ -43,7 +44,8 @@ class RoleController extends BaseController
      *   - status    int     状态过滤：1=启用，0=禁用
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       包含 list/total/page/per_page 的分页响应
+     * @return JsonResponse 包含 list/total/page/per_page 的分页响应
+     * @see RoleService::list()
      */
     public function index(Request $request): JsonResponse
     {
@@ -69,7 +71,8 @@ class RoleController extends BaseController
      * 获取所有启用状态的角色（status=1），扁平列表不分页。
      * 典型用途：前端"分配角色"下拉框 / 选择器数据源。
      *
-     * @return JsonResponse  启用角色的扁平数组
+     * @return JsonResponse 启用角色的扁平数组
+     * @see RoleService::all()
      */
     public function all(): JsonResponse
     {
@@ -84,8 +87,9 @@ class RoleController extends BaseController
      * 获取角色详情，附带其所有权限节点。
      * 不存在时抛 404 + CODE_ROLE_NOT_FOUND。
      *
-     * @param  int          $id  角色主键 ID
-     * @return JsonResponse      单个角色对象
+     * @param  int  $id  角色主键 ID
+     * @return JsonResponse 单个角色对象
+     * @see RoleService::find()
      */
     public function show(int $id): JsonResponse
     {
@@ -109,7 +113,8 @@ class RoleController extends BaseController
      *   sort           int?    排序权重，默认 100
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       HTTP 201，新创建的角色
+     * @return JsonResponse HTTP 201，新创建的角色
+     * @see RoleService::create()
      */
     public function store(Request $request): JsonResponse
     {
@@ -130,12 +135,22 @@ class RoleController extends BaseController
     /**
      * PUT /api/roles/{id}
      *
-     * 更新一个已有角色。内置角色（is_system=true）不允许修改 code。
+     * 更新一个已有角色。内置角色（is_system=true）拒绝修改，普通角色的 code 保持不变。
      * 未提供的字段保持原值；显式传 null 的可空字段会被置空。
      *
-     * @param  int      $id      角色主键 ID
-     * @param  Request  $request HTTP 请求对象
-     * @return JsonResponse      更新后的角色
+     * 请求字段（校验规则）：
+     * - code：'sometimes|string|max:64'
+     * - name：'sometimes|string|max:100'
+     * - name_zh：'nullable|string|max:100'
+     * - description：'nullable|string|max:255'
+     * - description_zh：'nullable|string|max:255'
+     * - status：'nullable|integer|in:0,1'
+     * - sort：'nullable|integer'
+     *
+     * @param  int  $id  角色主键 ID
+     * @param  Request  $request  HTTP 请求对象
+     * @return JsonResponse 更新后的角色
+     * @see RoleService::update()
      */
     public function update(int $id, Request $request): JsonResponse
     {
@@ -162,8 +177,9 @@ class RoleController extends BaseController
      *
      * 失败时分别抛 422 + CODE_SYSTEM_ROLE_PROTECTED / CODE_ROLE_HAS_USERS。
      *
-     * @param  int          $id  角色主键 ID
-     * @return JsonResponse      {deleted: true}
+     * @param  int  $id  角色主键 ID
+     * @return JsonResponse {deleted: true}
+     * @see RoleService::delete()
      */
     public function destroy(int $id): JsonResponse
     {
@@ -177,8 +193,9 @@ class RoleController extends BaseController
      *
      * 获取某角色已分配的权限节点 ID 列表。
      *
-     * @param  int          $id  角色主键 ID
-     * @return JsonResponse      { permissions: [int, int, ...] }
+     * @param  int  $id  角色主键 ID
+     * @return JsonResponse { permissions: [int, int, ...] }
+     * @see RoleService::getAssignments()
      */
     public function assignments(int $id): JsonResponse
     {
@@ -194,9 +211,16 @@ class RoleController extends BaseController
      *
      * 入参为数字 ID 视为 ID；为字符串视为 code，service 层会查表转换。
      *
-     * @param  int      $id      角色主键 ID
-     * @param  Request  $request HTTP 请求对象
-     * @return JsonResponse      更新后的角色
+     * 请求字段（校验规则）：
+     * - permission_ids：'sometimes|array'
+     * - permissions：'sometimes|array'
+     * - permission_ids.*：'integer|distinct|exists:permissions,id,deleted_at,NULL'
+     * - permissions.*：'string|distinct|exists:permissions,code,deleted_at,NULL'
+     *
+     * @param  int  $id  角色主键 ID
+     * @param  Request  $request  HTTP 请求对象
+     * @return JsonResponse 更新后的角色
+     * @see RoleService::assignPermissions()
      */
     public function assignPermissions(int $id, Request $request): JsonResponse
     {
@@ -220,7 +244,7 @@ class RoleController extends BaseController
      * 将 Role 模型序列化为 API 输出格式。
      *
      * @param  \App\Models\Role  $role  角色模型
-     * @return array                    输出数组
+     * @return array 输出数组
      */
     private function presentRole($role): array
     {

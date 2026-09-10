@@ -53,7 +53,7 @@ class User extends BaseModel
     /**
      * 字段类型转换。
      *
-     * @return array<string, string>
+     * @return array<string, string> 数据库字段名到 Eloquent 转换类型的映射
      */
     protected function casts(): array
     {
@@ -70,7 +70,7 @@ class User extends BaseModel
     /**
      * 主角色关联：通过 users.role_id → roles.id（向后兼容）。
      *
-     * @return BelongsTo<Role, User>
+     * @return BelongsTo<Role, User> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function role(): BelongsTo
     {
@@ -80,7 +80,7 @@ class User extends BaseModel
     /**
      * 多角色关联：通过 user_roles pivot 表，支持一个用户挂多个角色。
      *
-     * @return BelongsToMany<Role, User>
+     * @return BelongsToMany<Role, User> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function roles(): BelongsToMany
     {
@@ -94,7 +94,7 @@ class User extends BaseModel
     /**
      * 用户签发的 API token 集合。
      *
-     * @return HasMany<ApiToken, User>
+     * @return HasMany<ApiToken, User> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function apiTokens(): HasMany
     {
@@ -105,7 +105,7 @@ class User extends BaseModel
     /**
      * 一次性预加载 role + roles.permissions，便于登录响应直接使用。
      *
-     * @return self  支持链式调用
+     * @return self 支持链式调用
      */
     public function loadFullAuthContext(): self
     {
@@ -120,10 +120,9 @@ class User extends BaseModel
      *   2) user_roles pivot 中的第一个角色
      *   3) 空字符串
      *
-     * 注意：$this->role 同时是关联方法名，也是遗留字符串列；本实现
-     * 通过读取属性包避免歧义。
+     * 只考虑启用角色；通过 effectiveRoles() 合并主角色和多角色后取第一个。
      *
-     * @return string  小写角色 code，可能为空串
+     * @return string 小写角色 code，可能为空串
      */
     public function normalizedRole(): string
     {
@@ -132,6 +131,11 @@ class User extends BaseModel
             ->first()?->code ?? '';
     }
 
+    /**
+     * 合并多角色与兼容主角色，去重并仅保留启用角色。
+     *
+     * @return \Illuminate\Support\Collection<int, Role> 去重后的启用角色集合，包含兼容主角色
+     */
     public function effectiveRoles(): \Illuminate\Support\Collection
     {
         $this->loadMissing(['role.permissions', 'roles.permissions']);
@@ -146,7 +150,7 @@ class User extends BaseModel
     /**
      * 获取用户实际持有的全部角色 code（去重后）。
      *
-     * @return array<int, string>  例如 ['super_admin', 'admin']
+     * @return array<int, string> 例如 ['super_admin', 'admin']
      */
     public function effectiveRoleCodes(): array
     {

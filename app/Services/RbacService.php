@@ -11,12 +11,21 @@ use Illuminate\Support\Collection;
  */
 class RbacService
 {
+    /**
+     * 注入 有效权限处理所需的依赖。
+     *
+     * @param  PermissionDao  $permissionDao  权限节点数据访问对象
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private readonly PermissionDao $permissionDao)
     {
     }
 
     /**
      * 计算有效权限：祖先节点必须启用，导航仅补齐祖先菜单，不扩展同级操作权限。
+     *
+     * @param  User  $user  用户模型
+     * @return Collection 有效权限查询或计算结果集合；无匹配时为空集合
      */
     public function nodes(User $user): Collection
     {
@@ -58,6 +67,9 @@ class RbacService
 
     /**
      * 提取有效权限编码；仅超级管理员返回通配权限。
+     *
+     * @param  User  $user  用户模型
+     * @return array 有效权限编码列表；超级管理员返回通配符 *
      */
     public function codes(User $user): array
     {

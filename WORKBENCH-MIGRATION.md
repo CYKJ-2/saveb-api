@@ -77,13 +77,13 @@ Controller 负责参数与响应，Service 负责业务和事务，Dao 负责查
 # 仅网络尚不存在时创建；OCR 容器重建后需重新接入。
 docker network create saveb-business-services
 docker network connect saveb-business-services saveb-erp-dev-ocr-engine-1
-docker compose -f docker-compose.yml -f build/docker/docker-compose.local.yml -f docker-compose.modules.yml up -d --no-deps app
+docker compose -f docker-compose.yml -f docker-compose.modules.yml up -d --no-deps app
 docker exec saveb-api-nginx nginx -s reload
 ```
 
 覆盖配置使用现有本机镜像 `saveb-api-app:local`；`BUSINESS_ATTACHMENTS_ROOT=/data/attachments`，`BUSINESS_OCR_URL=http://saveb-erp-dev-ocr-engine-1:8081`。
 
-`build/php/start-business.sh` 将 PHP 工作进程加入附件卷所在组，仅初始化新上传子目录 `api` 的权限。新上传文件保留私有组读权限；浏览器通过 Bearer 鉴权接口获取图片。PHP 上传限制 25MB、请求体 27MB；Nginx 对应限制为 27MB。Nginx 修改前备份位于 `E:/wwwroot/remaining-modules-backup-20260906/nginx.local.conf`。
+`docker/start-local.sh` 将 PHP 工作进程加入附件卷所在组，仅初始化新上传子目录 `api` 的权限。新上传文件保留私有组读权限；浏览器通过 Bearer 鉴权接口获取图片。PHP 上传限制 25MB、请求体 27MB；当前根目录 `nginx.conf` 统一设置 HTTP 请求上限 50MB，实际上传仍受 PHP 和业务校验限制。历史 Nginx 修改前备份位于 `E:/wwwroot/remaining-modules-backup-20260906/nginx.local.conf`。
 
 本次仅重建了 API app 容器，未重建数据库、Redis 或旧 ERP 服务，也未发布到生产。
 

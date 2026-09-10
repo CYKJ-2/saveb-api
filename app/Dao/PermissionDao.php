@@ -18,7 +18,7 @@ class PermissionDao extends BaseDao
     /**
      * 返回当前 DAO 关联的模型类。
      *
-     * @return class-string<Permission>
+     * @return class-string<Permission> 模型类名
      */
     protected function model(): string
     {
@@ -41,6 +41,9 @@ class PermissionDao extends BaseDao
 
     /**
      * 广度优先收集节点及后代 ID，已访问节点不重复入队遍历。
+     *
+     * @param  int  $id  权限节点记录主键 ID
+     * @return array 当前权限节点及全部后代的 ID 列表，按已访问节点去重
      */
     public function subtreeIds(int $id): array
     {
@@ -65,6 +68,9 @@ class PermissionDao extends BaseDao
 
     /**
      * 软删除权限节点及全部后代。
+     *
+     * @param  int  $id  权限节点记录主键 ID
+     * @return void 无返回值；副作用见方法说明
      */
     public function deleteSubtree(int $id): void
     {
@@ -76,6 +82,9 @@ class PermissionDao extends BaseDao
 
     /**
      * 停用节点及其后代，返回受影响行数。
+     *
+     * @param  int  $id  权限节点记录主键 ID
+     * @return int 受影响的记录条数
      */
     public function disableSubtree(int $id): int
     {
@@ -90,7 +99,7 @@ class PermissionDao extends BaseDao
      * 获取所有节点的扁平列表（按 level/sort/id 排序）。
      * 典型用途：前端表单下拉 / 服务端自行构树。
      *
-     * @return Collection<int, Permission>
+     * @return Collection<int, Permission> 权限节点查询或计算结果集合；无匹配时为空集合
      */
     public function listAll(): Collection
     {
@@ -116,7 +125,7 @@ class PermissionDao extends BaseDao
      *   $tree = $dao->listAllAsTree();
      *   // → [{ id:1, children:[{ id:2, children:[{ id:3 }] }] }, ...]
      *
-     * @return Collection<int, Permission>  根节点集合，每个节点带 children 关系
+     * @return Collection<int, Permission> 根节点集合，每个节点带 children 关系
      */
     public function listAllAsTree(): Collection
     {
@@ -149,7 +158,7 @@ class PermissionDao extends BaseDao
      * 获取所有 action 权限点，可按父菜单 ID 过滤。
      *
      * @param  int|null  $parentId  父菜单 ID；为 null 返回全部 action
-     * @return Collection<int, Permission>
+     * @return Collection<int, Permission> 权限节点查询或计算结果集合；无匹配时为空集合
      */
     public function listActions(?int $parentId = null): Collection
     {
@@ -169,7 +178,7 @@ class PermissionDao extends BaseDao
      * 获取某角色已分配的全部权限节点 ID 列表。
      *
      * @param  int  $roleId  角色主键 ID
-     * @return array<int>    权限节点 ID 列表（菜单 + action 都包含）
+     * @return array<int> 权限节点 ID 列表（菜单 + action 都包含）
      */
     public function permissionIdsForRole(int $roleId): array
     {
@@ -183,7 +192,7 @@ class PermissionDao extends BaseDao
      * 获取某角色已分配的所有权限节点（菜单 + action），并预加载 children。
      *
      * @param  int  $roleId  角色主键 ID
-     * @return Collection<int, Permission>
+     * @return Collection<int, Permission> 权限节点查询或计算结果集合；无匹配时为空集合
      */
     public function allForRole(int $roleId): Collection
     {
@@ -200,7 +209,7 @@ class PermissionDao extends BaseDao
      * 获取某角色已分配的所有 action 权限节点。
      *
      * @param  int  $roleId  角色主键 ID
-     * @return Collection<int, Permission>
+     * @return Collection<int, Permission> 权限节点查询或计算结果集合；无匹配时为空集合
      */
     public function actionsForRole(int $roleId): Collection
     {

@@ -67,6 +67,42 @@ class RbacTest extends TestCase
         return $this->withHeader('Authorization', 'Bearer ' . $token);
     }
 
+    public function test_inspection_menu_is_idempotent_and_requires_explicit_role_grant(): void
+    {
+        $role = $this->role('inspection-reader');
+        $existing = $this->permission('existing.read');
+        $role->permissions()->sync([$existing->id]);
+        $user = $this->user('inspection-reader', $role->id);
+        $token = $this->token($user);
+        $migration = require database_path('migrations/2026_09_09_190000_add_inspection_system_menu.php');
+        $migration->up();
+        $migration->up();
+
+        $menu = Permission::where('code', 'inspection')->sole();
+        $this->assertSame('https://www.saveb-photos.com/admin', $menu->path);
+        $this->assertSame('验货系统', $menu->name_zh);
+        $this->assertSame('Inspection Photo System', $menu->name);
+        $this->assertSame('Camera', $menu->icon);
+        $this->assertSame(0, $menu->parent_id);
+        $this->assertSame([$existing->id], $role->permissions()->pluck('permissions.id')->all());
+        $this->assertSame(1, DB::table('role_permissions')->where('role_id', 1)->where('permission_id', $menu->id)->count());
+
+        $adminMenus = $this->asToken($this->adminToken)->getJson('/api/auth/me')->assertOk()->json('data.permissions');
+        $this->assertSame($menu->path, collect($adminMenus)->firstWhere('code', 'inspection')['path']);
+        $menus = $this->asToken($token)->getJson('/api/auth/me')->assertOk()->json('data.permissions');
+        $this->assertNull(collect($menus)->firstWhere('code', 'inspection'));
+        $role->permissions()->syncWithoutDetaching([$menu->id]);
+        $menus = $this->getJson('/api/auth/me')->assertOk()->json('data.permissions');
+        $this->assertSame($menu->path, collect($menus)->firstWhere('code', 'inspection')['path']);
+
+        $menu->update(['name_zh' => '自定义验货入口', 'status' => 0]);
+        $migration->up();
+        $this->assertSame('自定义验货入口', $menu->fresh()->name_zh);
+        $this->assertSame(0, $menu->fresh()->status);
+        $menus = $this->getJson('/api/auth/me')->assertOk()->json('data.permissions');
+        $this->assertNull(collect($menus)->firstWhere('code', 'inspection'));
+    }
+
     public function test_primary_role_login_me_and_api_agree_and_disabled_role_revokes_existing_token(): void
     {
         $menu = $this->permission('system.user', 0, 'menu');
@@ -136,6 +172,30 @@ class RbacTest extends TestCase
         $this->assertSame(2, $role->permissions()->count());
         $this->putJson($url, ['permission_ids' => []])->assertOk();
         $this->assertSame(0, $role->permissions()->count());
+    }
+
+    public function test_permission_name_sync_preserves_authorization_and_custom_nodes(): void
+    {
+        $parent = $this->permission('dashboard.order_management', 0, 'menu');
+        $permission = $this->permission('system.order.update', $parent->id);
+        $permission->update(['status' => 0]);
+        $custom = $this->permission('custom.permission');
+        $role = $this->role();
+        $role->permissions()->sync([$permission->id, $custom->id]);
+        $original = $permission->fresh()->getRawOriginal();
+        $this->seed(\Database\Seeders\PermissionNameSeeder::class);
+        $permission->refresh();
+        $this->assertSame('Edit', $permission->name);
+        $this->assertSame('编辑', $permission->name_zh);
+        foreach ($original as $field => $value) {
+            if (!in_array($field, ['name', 'name_zh', 'updated_at'], true)) {
+                $this->assertSame($value, $permission->getRawOriginal($field), $field);
+            }
+        }
+        $this->assertEqualsCanonicalizing([$permission->id, $custom->id], $role->permissions()->pluck('permissions.id')->all());
+        $this->assertSame('custom.permission', $custom->fresh()->name);
+        $this->seed(\Database\Seeders\PermissionNameSeeder::class);
+        $this->assertSame($permission->getRawOriginal(), $permission->fresh()->getRawOriginal());
     }
 
     public function test_disabled_or_deleted_ancestor_revokes_child_permission(): void

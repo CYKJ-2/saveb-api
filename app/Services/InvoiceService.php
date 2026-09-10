@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Dao\BusinessOperationLogDao;
 use App\Dao\InvoiceDao;
+use App\Models\BusinessOperationLog;
 use App\Models\InvoiceOrder;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -13,6 +15,16 @@ use Illuminate\Support\Facades\DB;
  */
 class InvoiceService
 {
+    /**
+     * 注入 Invoice 订单处理所需的依赖。
+     *
+     * @param  InvoiceDao  $invoiceDao  Invoice 订单数据访问对象
+     * @param  AttachmentService  $attachmentService  附件业务服务
+     * @param  BusinessOperationLogDao  $businessOperationLogDao  业务操作日志数据访问对象
+     * @param  InvoiceOcrParserService  $invoiceOcrParserService  Invoice 文本解析业务服务
+     * @param  InvoiceImageService  $invoiceImageService  Invoice 图片业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(
         private InvoiceDao $invoiceDao,
         private AttachmentService $attachmentService,
@@ -24,6 +36,9 @@ class InvoiceService
 
     /**
      * 转换为接口返回结构。
+     *
+     * @param  InvoiceOrder  $invoice  Invoice 订单模型
+     * @return array Invoice 订单字段及商品、客服分摊；列表序列化不携带图片内容
      */
     public function present(InvoiceOrder $invoice): array
     {
@@ -39,7 +54,11 @@ class InvoiceService
     }
 
     /**
-     * 分页查询。
+     * 按筛选条件分页查询 Invoice 订单。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件
+     * @return array Invoice 订单结果数组；返回字段：list、total、page、per_page、last_page
+     * @see InvoiceDao::listing()
      */
     public function listing(array $filters): array
     {
@@ -57,7 +76,12 @@ class InvoiceService
     }
 
     /**
-     * 按标识查询记录。
+     * 按主键读取 Invoice 订单详情。
+     *
+     * @param  int  $id  Invoice 订单记录主键 ID
+     * @return array Invoice 订单详情，附带截图和各商品图片的内联预览信息
+     * @see InvoiceDao::find()
+     * @see InvoiceImageService::forInvoice()
      */
     public function find(int $id): array
     {
@@ -74,13 +98,22 @@ class InvoiceService
 
     /**
      * 计算下一个订单号。
+     *
+     * @return string 下一个可用的数字 Invoice 订单号，最小为 10000
+     * @see InvoiceDao::nextNumber()
      */
     public function nextNumber(): string
     {
         return $this->invoiceDao->nextNumber();
     }
 
-    /** 表单沿用已有员工编码和当日生效汇率；兑美元汇率采用乘法。 */
+    /**
+     * 表单沿用已有员工编码和当日生效汇率；兑美元汇率采用乘法。
+     *
+     * @return array Invoice 订单结果数组；返回字段：staffCodes、ratesToUsd
+     * @see InvoiceDao::staffCodes()
+     * @see InvoiceDao::exchangeRates()
+     */
     public function formOptions(): array
     {
         return [
@@ -89,7 +122,13 @@ class InvoiceService
         ];
     }
 
-    /** 返回粘贴文字中的业务字段建议，不生成内部订单号或添加日期。 */
+    /**
+     * 返回粘贴文字中的业务字段建议，不生成内部订单号或添加日期。
+     *
+     * @param  string  $text  截图识别或粘贴得到的原始文本
+     * @return array 解析后的表单字段建议、原币金额、付款状态和识别提示
+     * @see InvoiceOcrParserService::parse()
+     */
     public function parseText(string $text): array
     {
         return $this->invoiceOcrParserService->parse($text) + ['text' => $text];
@@ -97,39 +136,99 @@ class InvoiceService
 
     /**
      * 分页读取操作日志。
+     *
+     * @param  int  $page  页码，从 1 开始
+     * @param  int  $perPage  每页条数；默认 20
+     * @param  string  $locale  展示语言，zh-CN 或 en-US
+     * @return LengthAwarePaginator 当前页日志及分页信息，展示字段与导出一致，保留原始日志字段
+     * @see BusinessOperationLogDao::invoiceLogs()
      */
-    public function logs(int $page, int $perPage = 20): LengthAwarePaginator
+    public function logs(int $page, int $perPage = 20, string $locale = 'zh-CN'): LengthAwarePaginator
     {
-        return $this->businessOperationLogDao->list('invoice', $page, $perPage);
+        return $this->businessOperationLogDao->invoiceLogs($page, $perPage)
+            ->through(fn ($log) => array_merge($log->toArray(), $this->presentLog($log, $locale)));
     }
 
     /**
      * 读取全部操作日志。
+     *
+     * @param  string  $locale  导出语言，zh-CN 或 en-US
+     * @return iterable 按需迭代的日志展示字段，与分页列表使用相同转换规则
+     * @see BusinessOperationLogDao::invoiceExportLogs()
      */
-    public function exportLogs(): iterable
+    public function exportLogs(string $locale = 'zh-CN'): iterable
     {
         foreach ($this->businessOperationLogDao->invoiceExportLogs() as $log) {
-            $legacy = $log->after['legacyInvoiceOperationLog'] ?? [];
-            yield [
-                'operationTime' => $legacy['operationTime'] ?? $log->created_at?->toIso8601String(),
-                'operator' => $legacy['operator'] ?? $log->operator_name ?? $log->actor_user_id,
-                'action' => $legacy['action'] ?? $log->action,
-                'orderNumber' => $legacy['orderNumber'] ?? $log->after['order_number'] ?? $log->before['order_number'] ?? $log->entity_id,
-                'customer' => $legacy['customerFullName'] ?? $log->after['customer_full_name'] ?? $log->before['customer_full_name'] ?? '',
-                'changedFields' => implode(' | ', $legacy['changedFields'] ?? []),
-                'details' => $legacy['details'] ?? '',
-                'recordId' => $legacy['recordId'] ?? $log->entity_id,
-            ];
+            yield $this->presentLog($log, $locale);
         }
     }
 
+    /**
+     * 统一列表与导出的八个展示字段，兼容原平台日志及已删除订单的快照。
+     *
+     * @param  BusinessOperationLog  $log  已关联操作人名称的 Invoice 日志
+     * @param  string  $locale  展示语言，zh-CN 或 en-US
+     * @return array 日志 ID、北京时间、操作人、动作及订单变更信息；缺少信息时返回空字符串
+     */
+    private function presentLog(BusinessOperationLog $log, string $locale): array
+    {
+        $legacy = $log->after['legacyInvoiceOperationLog'] ?? [];
+        $operator = trim((string) ($legacy['operator'] ?? ''))
+            ?: trim((string) $log->operator_display_name)
+            ?: trim((string) $log->operator_name)
+            ?: ($log->actor_user_id ? '#' . $log->actor_user_id : '');
+        $action = (string) ($legacy['action'] ?? $log->action);
+        $labels = $locale === 'en-US'
+            ? ['create' => 'Create', 'update' => 'Edit', 'delete' => 'Delete', 'ocr' => 'Invoice recognition']
+            : ['create' => '新增', 'update' => '编辑', 'delete' => '删除', 'ocr' => 'Invoice 截图识别'];
+        $operationTime = $log->created_at;
+        if (!empty($legacy['operationTime'])) {
+            try {
+                $operationTime = CarbonImmutable::parse($legacy['operationTime'], 'Asia/Shanghai');
+            } catch (\Exception) {
+                // 旧时间不可解析时使用日志入库时间，避免整页日志读取失败。
+            }
+        }
+
+        return [
+            'id' => $log->id,
+            'operationTime' => $operationTime?->copy()->setTimezone('Asia/Shanghai')->format('Y-m-d H:i:s') ?? '',
+            'operator' => $operator,
+            'actionLabel' => $labels[strtolower($action)] ?? $action,
+            'orderNumber' => (string) ($legacy['orderNumber'] ?? $log->after['order_number'] ?? $log->before['order_number'] ?? ($log->action === 'ocr' ? '' : $log->entity_id)),
+            'customer' => (string) ($legacy['customerFullName'] ?? $log->after['customer_full_name'] ?? $log->before['customer_full_name'] ?? ''),
+            'changedFields' => implode(' | ', $legacy['changedFields'] ?? []),
+            'details' => (string) ($legacy['details'] ?? ''),
+            'recordId' => (string) ($legacy['recordId'] ?? $log->entity_id),
+        ];
+    }
+
+    /**
+     * 按时间读取全部 Invoice 操作日志，供导出使用。
+     *
+     * @return iterable 按需迭代的Invoice 订单记录，供逐条处理或导出
+     * @see BusinessOperationLogDao::all()
+     */
     public function allLogs(): iterable
     {
         return $this->businessOperationLogDao->all('invoice');
     }
 
     /**
-     * 保存记录。
+     * 保存 Invoice 订单及其关联数据。
+     *
+     * @param  int|null  $id  Invoice 订单记录主键 ID
+     * @param  array  $data  经过 Controller 校验的业务字段；本方法读取 invoice_status、version、invoice_screenshot_attachment_id、items、allocations、invoice_date
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @return array 保存后的 Invoice 订单及商品、客服分摊字段
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     * @see InvoiceDao::find()
+     * @see AttachmentService::lockBindings()
+     * @see AttachmentService::validateBinding()
+     * @see InvoiceDao::nextNumber()
+     * @see InvoiceDao::save()
+     * @see AttachmentService::bind()
+     * @see BusinessOperationLogDao::record()
      */
     public function save(
         ?int $id,
@@ -190,7 +289,16 @@ class InvoiceService
     }
 
     /**
-     * 移除记录。
+     * 移除 Invoice 订单记录。
+     *
+     * @param  int  $id  Invoice 订单记录主键 ID
+     * @param  int  $version  客户端读取的乐观锁版本，用于检测并发修改
+     * @param  int  $actor  当前操作用户的主键 ID，用于授权校验或操作记录
+     * @return void 无返回值；副作用见方法说明
+     * @throws \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface 业务校验、授权或资源可用性检查未通过
+     * @see InvoiceDao::find()
+     * @see BusinessOperationLogDao::record()
+     * @see InvoiceDao::remove()
      */
     public function remove(
         int $id,

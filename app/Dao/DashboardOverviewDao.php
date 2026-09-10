@@ -17,6 +17,9 @@ class DashboardOverviewDao
 {
     /**
      * 读取指定日期前最近的各币种汇率。
+     *
+     * @param  string  $date  业务日期，格式 Y-m-d
+     * @return array 截至目标日期最近生效的各币种汇率
      */
     public function exchangeRates(string $date): array
     {
@@ -36,6 +39,8 @@ class DashboardOverviewDao
 
     /**
      * 读取账户及历史停用状态。
+     *
+     * @return array 账户基础资料、余额记录及历史停用状态
      */
     public function paypalAccounts(): array
     {
@@ -53,6 +58,9 @@ class DashboardOverviewDao
 
     /**
      * 关联提现记录。
+     *
+     * @param  array  $range  统计日期范围，包含 startDate、endDate，格式 Y-m-d；本方法读取 startDate、endDate
+     * @return array 筛选日期范围内的提款记录
      */
     public function withdrawals(array $range): array
     {
@@ -65,6 +73,8 @@ class DashboardOverviewDao
 
     /**
      * 读取启用的在线协作表格。
+     *
+     * @return array 启用的在线协作表格目录
      */
     public function spreadsheets(): array
     {
@@ -85,6 +95,8 @@ class DashboardOverviewDao
 
     /**
      * 查询数据库中的业务日期覆盖和更新时间。
+     *
+     * @return array 首页概览结果数组；返回字段：firstDate、dataThrough、lastDatabaseUpdate、orderRecords、invoiceRecords、collectorState、backfillProgress
      */
     public function dataStatus(): array
     {

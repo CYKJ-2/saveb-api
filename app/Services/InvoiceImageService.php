@@ -10,13 +10,26 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 /** Invoice 详情图片：校验当前订单绑定后直接返回图片内容。 */
 class InvoiceImageService
 {
+    /**
+     * 注入 Invoice 图片处理所需的依赖。
+     *
+     * @param  AttachmentDao  $attachmentDao  附件数据访问对象
+     * @param  AttachmentService  $attachmentService  附件业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(
         private AttachmentDao $attachmentDao,
         private AttachmentService $attachmentService,
     ) {
     }
 
-    /** 仅供已鉴权的订单详情调用，列表不携带图片二进制内容。 */
+    /**
+     * 仅供已鉴权的订单详情调用，列表不携带图片二进制内容。
+     *
+     * @param  InvoiceOrder  $invoice  Invoice 订单模型
+     * @return array 截图和各商品附件的预览映射；缺失图片保留可识别的空预览
+     * @see AttachmentDao::findMany()
+     */
     public function forInvoice(InvoiceOrder $invoice): array
     {
         $ids = $invoice->items->pluck('image_attachment_id')->all();
@@ -43,7 +56,16 @@ class InvoiceImageService
         ];
     }
 
-    /** 缺失图片不能使整张订单无法编辑，也不能回退到其他订单的附件。 */
+    /**
+     * 缺失图片不能使整张订单无法编辑，也不能回退到其他订单的附件。
+     *
+     * @param  Attachment|null  $attachment  附件模型；null 表示不存在或尚未创建
+     * @param  int|null  $id  Invoice 图片记录主键 ID
+     * @param  int  $invoiceId  目标 Invoice 订单主键 ID
+     * @param  string  $type  附件用途，取值须与绑定时的 entity_type 一致
+     * @return array 单张图片的内联预览及可用状态
+     * @see AttachmentService::path()
+     */
     private function preview(?Attachment $attachment, ?int $id, int $invoiceId, string $type): array
     {
         $image = ['id' => $id, 'src' => null, 'status' => $id ? 'missing' : 'empty'];

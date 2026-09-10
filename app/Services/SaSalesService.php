@@ -9,19 +9,34 @@ use App\Dao\SaSalesDao;
  */
 class SaSalesService
 {
+    /**
+     * 注入 SA 销售处理所需的依赖。
+     *
+     * @param  SaSalesDao  $saSalesDao  SA 销售数据访问对象
+     * @param  OrderManagementService  $orderManagementService  订单管理业务服务
+     * @return void 无返回值；完成依赖初始化
+     */
     public function __construct(private SaSalesDao $saSalesDao, private OrderManagementService $orderManagementService)
     {
     }
 
     /**
      * 读取可用业务日期范围。
+     *
+     * @return array 数据刷新时间 refreshedAt、最早日期 firstDate 和覆盖日期 dataThrough
+     * @see SaSalesDao::bounds()
      */
     public function bounds(): array
     {
         return $this->saSalesDao->bounds();
     }
 
-    /** 返回独立明细表单所需的销售员选项。 */
+    /**
+     * 返回独立明细表单所需的销售员选项。
+     *
+     * @return array SA 销售结果数组；返回字段：employees
+     * @see SaSalesDao::staffCodes()
+     */
     public function orderOptions(): array
     {
         return ['employees' => $this->saSalesDao->staffCodes()];
@@ -30,6 +45,10 @@ class SaSalesService
     /**
      * 明细按独立条件查询和分页，不受绩效报表仅统计已完成及退款订单的限制。
      * 未选分类时排除 Invoice；指定 Invoice 时沿用订单管理的合并去重规则。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 customerService、classification
+     * @return array 当前页记录及分页信息；汇总字段按业务方法计算
+     * @see OrderManagementService::rows()
      */
     public function orders(array $filters): array
     {
@@ -62,14 +81,25 @@ class SaSalesService
         return $page + ['totalAmount' => round($totalAmount, 2)];
     }
 
-    /** 退款状态或负金额均按退款展示，保持明细与统计的金额符号一致。 */
+    /**
+     * 退款状态或负金额均按退款展示，保持明细与统计的金额符号一致。
+     *
+     * @param  array  $row  SA 销售单条记录
+     * @return bool 状态属于退款或美元金额为负数时为 true
+     */
     private function isRefund(array $row): bool
     {
         return in_array($row['paymentStatus'], ['refunded', 'reversed', 'chargeback', 'returned'], true)
             || ($row['amountUsd'] ?? 0) < 0;
     }
 
-    /** 补充来源渠道与收款信息；只读取当前所需订单的轻量来源字段。 */
+    /**
+     * 补充来源渠道与收款信息；只读取当前所需订单的轻量来源字段。
+     *
+     * @param  array  $rows  SA 销售记录列表
+     * @return array 补充 salesChannel、paymentMethod、paymentAccount 的订单列表
+     * @see SaSalesDao::reportSources()
+     */
     private function enrichSalesSources(array $rows): array
     {
         $orderIds = array_column(array_filter($rows, fn ($row) => $row['kind'] === 'order'), 'id');
@@ -87,6 +117,9 @@ class SaSalesService
 
     /**
      * 按销售额阶梯计算佣金。
+     *
+     * @param  float  $sales  用于阶梯佣金计算的美元销售额
+     * @return float 按阶梯计算的美元提成金额，保留两位小数
      */
     public static function commission(float $sales): float
     {
@@ -106,6 +139,10 @@ class SaSalesService
 
     /**
      * 汇总客服、渠道、日期和收款账户绩效。
+     *
+     * @param  array  $rows  SA 销售记录列表
+     * @param  bool  $includeDetails  是否同时生成订单明细；默认 true
+     * @return array SA 销售结果数组；返回字段：metrics、employees、channels、daily、paymentMethods、paymentAccounts、breakdowns、detail
      */
     private function summarize(array $rows, bool $includeDetails = true): array
     {
@@ -190,12 +227,16 @@ class SaSalesService
 
     /**
      * 生成绩效报表。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件；本方法读取 includeDetails
+     * @return array 员工排行、渠道统计、每日趋势、支付分布和总体销售指标
+     * @see OrderManagementService::rows()
      */
     public function report(array $filters): array
     {
         $includeDetails = (bool) ($filters['includeDetails'] ?? true);
         unset($filters['includeDetails']);
-        $rows = $this->enrichSalesSources($this->orderManagementService->rows($filters));
+        $rows = $this->enrichSalesSources($this->orderManagementService->rows($filters + ['_withProducts' => $includeDetails]));
         $regular = [];
         $invoices = [];
         foreach ($rows as $row) {
@@ -215,6 +256,9 @@ class SaSalesService
 
     /**
      * 生成导出记录。
+     *
+     * @param  array  $filters  当前业务模块的筛选及分页条件
+     * @return iterable 按需迭代的SA 销售记录，供逐条处理或导出
      */
     public function exportRows(array $filters): iterable
     {
@@ -262,6 +306,12 @@ class SaSalesService
 
     /**
      * 按维度累计订单和退款；退款减少净销售额，单独统计退款单数。
+     *
+     * @param  array  $groups  按统计维度索引的累计数据；按引用原地更新
+     * @param  string  $name  当前业务对象的名称
+     * @param  float  $amount  当前计算或登记的金额
+     * @param  bool  $refund  当前订单是否按退款口径计算
+     * @return void 无返回值；副作用见方法说明
      */
     private function accumulateDimension(
         array &$groups,
@@ -284,6 +334,12 @@ class SaSalesService
 
     /**
      * 客服金额按比例分摊，订单数按参与客服各记一单，日期用于活跃天数。
+     *
+     * @param  array  $employees  按员工编码组织的销售累计数据；按引用原地更新
+     * @param  array  $row  SA 销售单条记录
+     * @param  float  $amount  当前计算或登记的金额
+     * @param  bool  $refund  当前订单是否按退款口径计算
+     * @return void 无返回值；副作用见方法说明
      */
     private function accumulateEmployees(
         array &$employees,
@@ -315,6 +371,11 @@ class SaSalesService
 
     /**
      * 生成带退款标记的订单明细，供报表和 CSV 导出共用。
+     *
+     * @param  array  $row  SA 销售单条记录
+     * @param  float|null  $amount  当前计算或登记的金额
+     * @param  bool  $refund  当前订单是否按退款口径计算
+     * @return array SA 销售结果数组；返回字段：id、identity、date、orderId、customer、amountUsd、website、classification、staff、channel、paymentMethod、account、status、staffAllocations、refund
      */
     private function presentDetail(
         array $row,
@@ -344,6 +405,9 @@ class SaSalesService
 
     /**
      * 按净销售额排名并结算阶梯佣金；未分配客服不计佣金。
+     *
+     * @param  array  $employees  按员工编码组织的销售累计数据
+     * @return array 按净销售额降序排列、已计算提成和活跃天数的员工列表
      */
     private function finalizeEmployees(array $employees): array
     {
@@ -368,6 +432,11 @@ class SaSalesService
 
     /**
      * 汇总活跃天数、客单价及最佳销售，最后统一舍入金额。
+     *
+     * @param  array  $total  当前范围的汇总指标
+     * @param  array  $daily  按业务日期组织的每日统计
+     * @param  array  $employees  按员工编码组织的销售累计数据
+     * @return array 包含活跃天数、日均、客单价和最佳销售的最终汇总指标
      */
     private function finalizeMetrics(
         array $total,
@@ -392,6 +461,9 @@ class SaSalesService
 
     /**
      * 将各维度净销售额保留两位小数，避免跨循环共享数组引用。
+     *
+     * @param  array  $groups  按统计维度索引的累计数据
+     * @return array 净销售额保留两位小数后的分组数据
      */
     private function roundGroups(array $groups): array
     {
@@ -405,7 +477,13 @@ class SaSalesService
         return array_values($groups);
     }
 
-    /** 渠道和销售占比沿用 source 的正销售额口径，退款不改变销售份额分母。 */
+    /**
+     * 渠道和销售占比沿用 source 的正销售额口径，退款不改变销售份额分母。
+     *
+     * @param  array  $groups  按统计维度索引的累计数据
+     * @param  float  $positiveSales  正销售额合计，用作销售占比分母
+     * @return array 已计算客单价和正销售额占比的维度统计列表
+     */
     private function finalizeDimension(array $groups, float $positiveSales): array
     {
         $groups = $this->roundGroups($groups);

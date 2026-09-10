@@ -57,6 +57,7 @@ Route::prefix('workbench')->middleware('auth.api')->group(function () {
     Route::get('paypal/withdrawals', [PaypalController::class,'withdrawals'])->middleware('permission:business.paypal.withdrawals');
     Route::get('paypal/withdrawals/export', [PaypalController::class,'exportWithdrawals'])->middleware('permission:business.paypal.withdrawals,business.paypal.export');
     Route::get('paypal/statistics', [PaypalController::class,'statistics'])->middleware('permission:business.paypal.statistics');
+    Route::get('paypal/logs', [PaypalController::class,'logs'])->middleware('permission:business.paypal.logs');
     Route::get('paypal/logs/export', [PaypalController::class,'exportLogs'])->middleware('permission:business.paypal.logs');
     Route::post('paypal', [PaypalController::class,'create'])->middleware('permission:business.paypal.create');
     foreach (['balance','review','withdrawal'] as $action) {

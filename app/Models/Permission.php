@@ -93,7 +93,7 @@ class Permission extends BaseModel
     /**
      * 字段类型转换。
      *
-     * @return array<string, string>
+     * @return array<string, string> 数据库字段名到 Eloquent 转换类型的映射
      */
     protected function casts(): array
     {
@@ -111,7 +111,7 @@ class Permission extends BaseModel
     /**
      * 父节点关联（self-referencing）。
      *
-     * @return BelongsTo<Permission, Permission>
+     * @return BelongsTo<Permission, Permission> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function parent(): BelongsTo
     {
@@ -121,7 +121,7 @@ class Permission extends BaseModel
     /**
      * 直接子节点（一级）。
      *
-     * @return HasMany<Permission, Permission>
+     * @return HasMany<Permission, Permission> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function children(): HasMany
     {
@@ -134,7 +134,7 @@ class Permission extends BaseModel
     /**
      * 直接子节点的别名，语义清晰。
      *
-     * @return HasMany<Permission, Permission>
+     * @return HasMany<Permission, Permission> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function directChildren(): HasMany
     {
@@ -145,7 +145,7 @@ class Permission extends BaseModel
     /**
      * 拥有该权限节点的所有角色。
      *
-     * @return BelongsToMany<Role, Permission>
+     * @return BelongsToMany<Role, Permission> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function roles(): BelongsToMany
     {
@@ -160,7 +160,7 @@ class Permission extends BaseModel
      * 中文 locale 且有 name_zh 时返回中文，否则回退英文。
      *
      * @param  string  $locale  例如 'en' | 'zh-CN' | 'zh'
-     * @return string           非空的显示名称
+     * @return string 非空的显示名称
      */
     public function nameIn(string $locale): string
     {
@@ -174,8 +174,8 @@ class Permission extends BaseModel
     /**
      * 按 locale 解析描述。
      *
-     * @param  string    $locale
-     * @return string|null
+     * @param  string  $locale  当前界面语言，如 zh-CN 或 en-US
+     * @return string|null 权限节点模型实例；未找到时返回 null
      */
     public function descriptionIn(string $locale): ?string
     {
@@ -189,10 +189,7 @@ class Permission extends BaseModel
     /**
      * 结构化 i18n 字段，前端可直接 p.i18n.name[locale]。
      *
-     * @return array{
-     *   name: array{en: string, zh: ?string},
-     *   description: array{en: ?string, zh: ?string}
-     * }
+     * @return array{ name: array{en: string, zh: ?string}, description: array{en: ?string, zh: ?string} } 权限节点结果数组；返回字段：name、description
      */
     public function i18n(): array
     {
@@ -211,8 +208,8 @@ class Permission extends BaseModel
     /**
      * 判断给定 locale 是否属于中文族。
      *
-     * @param  string  $locale
-     * @return bool
+     * @param  string  $locale  当前界面语言，如 zh-CN 或 en-US
+     * @return bool locale 以 zh 开头时为 true
      */
     private function isChinese(string $locale): bool
     {

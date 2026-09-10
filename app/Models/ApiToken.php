@@ -48,7 +48,7 @@ class ApiToken extends BaseModel
     /**
      * 字段类型转换。
      *
-     * @return array<string, string>
+     * @return array<string, string> 数据库字段名到 Eloquent 转换类型的映射
      */
     protected function casts(): array
     {
@@ -65,7 +65,7 @@ class ApiToken extends BaseModel
     /**
      * token 所属用户。
      *
-     * @return BelongsTo<User, ApiToken>
+     * @return BelongsTo<User, ApiToken> 用于加载或继续约束该关联的 Eloquent 关系对象
      */
     public function user(): BelongsTo
     {
@@ -78,13 +78,13 @@ class ApiToken extends BaseModel
      *
      * 明文格式：saveb_ 前缀 + 40 位随机字符串（总长 46）。
      *
-     * @param  int         $userId             用户主键 ID
-     * @param  string|null $name               token 标签
-     * @param  string|null $ip                 客户端 IP
-     * @param  string|null $userAgent          客户端 UA
-     * @param  int         $expiresInSeconds   有效期秒数
-     * @param  array       $abilities          权限范围数组，['*'] 表示全部
-     * @return array{id: int, plain: string, token_hash: string, expires_at: Carbon}
+     * @param  int  $userId  用户主键 ID
+     * @param  string|null  $name  token 标签
+     * @param  string|null  $ip  客户端 IP
+     * @param  string|null  $userAgent  客户端 UA
+     * @param  int  $expiresInSeconds  有效期秒数
+     * @param  array  $abilities  权限范围数组，['*'] 表示全部
+     * @return array{id: int, plain: string, token_hash: string, expires_at: Carbon} API 令牌结果数组；返回字段：id、plain、token_hash、expires_at
      */
     public static function issue(
         int $userId,
@@ -118,8 +118,8 @@ class ApiToken extends BaseModel
     /**
      * 通过 token 明文查找对应行。过期或不存在返回 null。
      *
-     * @param  string   $plain  Bearer token 明文
-     * @return self|null        命中的 token 行；过期/不存在时返回 null
+     * @param  string  $plain  Bearer token 明文
+     * @return self|null 命中的 token 行；过期/不存在时返回 null
      */
     public static function findByPlain(string $plain): ?self
     {
@@ -139,7 +139,7 @@ class ApiToken extends BaseModel
      * 判断 token 是否拥有指定权限。abilities 中包含 '*' 即视为全部允许。
      *
      * @param  string  $ability  权限标识，例如 'users.read'
-     * @return bool              拥有该能力返回 true
+     * @return bool 拥有该能力返回 true
      */
     public function can(string $ability): bool
     {

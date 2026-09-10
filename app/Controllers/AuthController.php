@@ -34,6 +34,7 @@ class AuthController extends BaseController
      * 构造函数，注入认证服务。
      *
      * @param  AuthService  $authService  认证业务服务
+     * @return void 无返回值；完成依赖初始化
      */
     public function __construct(private readonly AuthService $authService)
     {
@@ -55,7 +56,8 @@ class AuthController extends BaseController
      * Error 403: { "success": false, "code": -1101, "message": "账户已禁用。" }
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       登录结果
+     * @return JsonResponse 登录结果
+     * @see AuthService::attempt()
      */
     public function login(Request $request): JsonResponse
     {
@@ -113,7 +115,7 @@ class AuthController extends BaseController
      *   3) 默认 'en-us'
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return string             规范化后的小写 locale
+     * @return string 规范化后的小写 locale
      */
     private function resolveLocale(Request $request): string
     {
@@ -136,7 +138,8 @@ class AuthController extends BaseController
      * 如果头中不存在有效 token 返回 401；找不到 token 行时按已登入处理。
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       成功响应 { message: 'Logged out.' } 或 401
+     * @return JsonResponse 成功响应 { message: 'Logged out.' } 或 401
+     * @see AuthService::logout()
      */
     public function logout(Request $request): JsonResponse
     {
@@ -165,7 +168,7 @@ class AuthController extends BaseController
      *   }
      *
      * @param  Request  $request  HTTP 请求对象
-     * @return JsonResponse       当前登录用户信息
+     * @return JsonResponse 当前登录用户信息
      */
     public function me(Request $request): JsonResponse
     {
@@ -212,8 +215,8 @@ class AuthController extends BaseController
      * 从 Authorization 请求头中提取 Bearer token 明文。
      * 大小写不敏感；提取不到返回 null。
      *
-     * @param  Request    $request  HTTP 请求对象
-     * @return string|null          token 明文，未找到返回 null
+     * @param  Request  $request  HTTP 请求对象
+     * @return string|null token 明文，未找到返回 null
      */
     private function extractPlainToken(Request $request): ?string
     {
@@ -241,15 +244,7 @@ class AuthController extends BaseController
      *       └── action (level=3, type=action)
      *
      * @param  User  $user  当前登录用户（已预加载 roles.permissions）
-     * @return array<int, array{
-     *   id:int, parent_id:int, code:string,
-     *   name:string, name_zh:?string,
-     *   i18n: array{name: array{en:string, zh:?string}, description: array{en:?string, zh:?string}},
-     *   type:string, action:?string,
-     *   path:?string, icon:?string, component:?string,
-     *   level:int, sort:int, status:int, hidden:bool, is_menu_visible:bool,
-     *   children:array<int, array{...}>
-     * }>
+     * @return array<int, array{ id:int, parent_id:int, code:string, name:string, name_zh:?string, i18n: array{name: array{en:string, zh:?string}, description: array{en:?string, zh:?string}}, type:string, action:?string, path:?string, icon:?string, component:?string, level:int, sort:int, status:int, hidden:bool, is_menu_visible:bool, children:array<int, array{...}> }> 当前用户有效权限树，节点包含菜单、操作权限和双语名称
      */
     private function collectPermissions(User $user): array
     {
@@ -288,7 +283,7 @@ class AuthController extends BaseController
      * 将单个 Permission 模型渲染为 API 输出格式（带 i18n）。
      *
      * @param  \App\Models\Permission  $permission  权限节点模型
-     * @return array                       节点字典（含 children 占位）
+     * @return array 节点字典（含 children 占位）
      */
     private function presentPermissionNode(\App\Models\Permission $permission): array
     {
