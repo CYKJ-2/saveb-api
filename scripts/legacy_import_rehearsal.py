@@ -239,6 +239,11 @@ def build_trial_sql(database, source, target, expected, protected, sequences, co
     # SQL 自身也绑定随机临时库名；即使被误传给正式 psql，第一句就拒绝。
     if not re.fullmatch(r"saveb_rehearsal_trial_[a-f0-9]{12}", database):
         raise ValueError("Invalid trial database.")
+    return build_empty_database_import_sql(database, source, target, expected, protected, sequences, copy_dir)
+
+
+def build_empty_database_import_sql(database, source, target, expected, protected, sequences, copy_dir):
+    """生成绑定具体数据库的空业务表导入事务；正式入口另行校验演练材料及目标。"""
     tables = {t["name"]: t for t in source["tables"]}
     targets = {t["name"]: t for t in target["tables"]}
     selected = sorted(tables)
@@ -247,8 +252,10 @@ def build_trial_sql(database, source, target, expected, protected, sequences, co
     foreign_keys = [c for c in target["constraints"] if c["table_name"] in BUSINESS and c["type"] == "f"]
     sql = [r"\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL TIME ZONE 'UTC';", "SET LOCAL search_path=public,pg_catalog;", "SET LOCAL lock_timeout='5s';",
            "DO $guard$ BEGIN IF current_database() <> " + qs(database)
-           + " THEN RAISE EXCEPTION 'Rehearsal database only'; END IF; END $guard$;"]
+           + " THEN RAISE EXCEPTION 'Import database mismatch'; END IF; END $guard$;"]
     sql.append("LOCK TABLE " + ",".join("public." + qi(n) for n in selected) + " IN ACCESS EXCLUSIVE MODE;")
+    if protected:
+        sql.append("LOCK TABLE " + ",".join(full_name(p["schema"], p["table"]) for p in protected) + " IN SHARE MODE;")
     for name in selected:
         sql.append("DO $empty$ BEGIN IF EXISTS(SELECT 1 FROM public." + qi(name)
                    + ") THEN RAISE EXCEPTION 'Nonempty business table: " + name + "'; END IF; END $empty$;")
