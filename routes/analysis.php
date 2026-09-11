@@ -7,6 +7,7 @@ Route::prefix('workbench/analysis')->middleware(['auth.api', 'permission:busines
     Route::get('options', [AnalysisController::class, 'options']);
     Route::get('report', [AnalysisController::class, 'report']);
     Route::get('rows', [AnalysisController::class, 'index']);
+    Route::get('customers', [AnalysisController::class, 'customers']);
     Route::get('rows/{id}/evidence', [AnalysisController::class, 'evidence'])->whereNumber('id');
     Route::get('imports', [AnalysisController::class, 'imports'])->middleware('permission:business.analysis.import');
     Route::post('imports', [AnalysisController::class, 'import'])->middleware('permission:business.analysis.import');

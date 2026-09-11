@@ -10,4 +10,6 @@ class AnalysisBrand extends Model
     protected $table = 'analysis_brands';
 
     protected $guarded = [];
+
+    protected $casts = ['aliases' => 'array', 'source_entries' => 'array', 'is_active' => 'boolean'];
 }

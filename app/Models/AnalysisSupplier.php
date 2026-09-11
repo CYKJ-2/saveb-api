@@ -10,4 +10,6 @@ class AnalysisSupplier extends Model
     protected $table = 'analysis_suppliers';
 
     protected $guarded = [];
+
+    protected $casts = ['mapping_rules' => 'array'];
 }

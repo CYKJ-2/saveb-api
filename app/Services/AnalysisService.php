@@ -5,54 +5,65 @@ namespace App\Services;
 use App\Dao\AnalysisDao;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-/** Analysis 展示口径：只汇总采购表实际成交价格，保留未知值及来源覆盖情况。 */
+/** 基于采购明细的 CNY 成交分析和当前语言导出。 */
 class AnalysisService
 {
-    /** @var array<string, array<int, string>> 页面和导出共用的列顺序及中英文名称。 */
     public const COLUMNS = [
-        'analysis_date' => ['统计日期', 'Analysis date'],
-        'date_basis' => ['日期依据', 'Date basis'],
-        'order_reference' => ['原表订单号', 'Source order reference'],
-        'record_type' => ['采购类型', 'Procurement type'],
+        'analysis_date' => ['发起采购日期', 'Procurement date'],
+        'customer_order_date' => ['顾客下单日期', 'Customer order date'],
+        'order_reference' => ['下单形式／单号', 'Order form / reference'],
+        'purchase_method' => ['采购方式', 'Purchase method'],
         'customer_name' => ['客户名', 'Customer'],
-        'brand' => ['品牌', 'Brand'],
-        'category' => ['品类', 'Category'],
-        'product_description' => ['货号 / 产品描述', 'Item / product description'],
-        'supplier_raw' => ['供应商', 'Supplier'],
-        'actual_price' => ['原表成交价格', 'Source transaction price'],
-        'quantity' => ['数量', 'Quantity'],
-        'analysis_amount' => ['统计金额', 'Analysis amount'],
-        'currency' => ['币种', 'Currency'],
-        'price_basis' => ['价格口径', 'Price basis'],
-        'country' => ['国家', 'Country'],
-        'customer_type' => ['顾客类型（已知历史）', 'Customer type (known history)'],
+        'customer_type' => ['顾客类型', 'Customer type'],
+        'customer_first_date' => ['首次采购日（已知历史）', 'First purchase (known history)'],
+        'brand_raw' => ['原始品牌代号', 'Source brand code'],
+        'brand' => ['品牌', 'Brand'], 'category' => ['品类', 'Category'],
+        'product_description' => ['货号', 'Item description'], 'supplier_name' => ['供应商', 'Supplier'],
+        'supplier_quote' => ['供应商定价', 'Supplier quoted price'],
+        'actual_price' => ['实际成交价格', 'Actual transaction price'],
+        'analysis_amount' => ['纳入统计金额', 'Eligible amount'],
+        'currency' => ['币种', 'Currency'], 'purchase_status' => ['是否采购', 'Purchase status'],
+        'price_raw' => ['原始价格文本', 'Source price text'],
+        'price_status' => ['价格状态', 'Price status'],
+        'brand_match_status' => ['品牌匹配', 'Brand matching'],
         'classification_status' => ['品类匹配', 'Category matching'],
-        'order_match_status' => ['订单匹配', 'Order matching'],
-        'purchase_status' => ['采购状态', 'Purchase status'],
-        'sheet_name' => ['来源工作表', 'Source worksheet'],
-        'row_number' => ['来源行号', 'Source row'],
+        'issues_text' => ['数据核查提示', 'Data quality notes'],
+        'source_period' => ['来源月份', 'Source month'],
+        'sheet_name' => ['来源 Sheet', 'Source worksheet'], 'row_number' => ['来源行号', 'Source row'],
     ];
 
-    /** @var array<string, array<int, string>> 派生字段值的中英文显示文本。 */
     private const LABELS = [
         'unknown' => ['未知', 'Unknown'], 'matched' => ['已匹配', 'Matched'],
         'unmatched' => ['未匹配', 'Unmatched'], 'ambiguous' => ['多个候选', 'Ambiguous'],
-        'conflict' => ['信息冲突', 'Conflicting evidence'], 'needs_evidence' => ['缺少核对依据', 'Needs corroboration'],
-        'first' => ['已知历史首次购物', 'First in known history'], 'returning' => ['复购顾客', 'Returning customer'],
-        'ordinary' => ['普通订单采购', 'Regular order procurement'], 'invoice' => ['Invoice 订单采购', 'Invoice procurement'],
-        'after_sale' => ['售后 / 换补货', 'After-sales / replacements'], 'other_procurement' => ['达人 / 样品等采购', 'Creator / sample procurement'],
-        'row_total' => ['每行合计', 'Row total'], 'unit' => ['单件价格', 'Unit price'],
-        'customer_order_date' => ['顾客下单日期', 'Customer order date'], 'procurement_date' => ['发起采购日期（补充）', 'Procurement date (fallback)'],
-        'legacy_date' => ['原表日期（补充）', 'Legacy date (fallback)'],
+        'pending' => ['待确认', 'Pending confirmation'], 'conflict' => ['信息冲突', 'Conflicting evidence'],
+        'first' => ['首购', 'First purchase'], 'returning' => ['复购', 'Repeat purchase'],
+        'ws' => ['WS', 'WS'], 'pl' => ['PL', 'PL'], 'invoice' => ['Invoice', 'Invoice'],
+        'after_sale' => ['售后／换补货', 'After-sales / replacements'],
+        'influencer' => ['达人／样品', 'Creator / sample'], 'accessory' => ['配件', 'Accessories'],
+        'valid' => ['有效', 'Valid'], 'missing' => ['缺失', 'Missing'], 'invalid' => ['无效', 'Invalid'],
+        'currency_conflict' => ['币种冲突', 'Currency conflict'],
+    ];
+
+    private const ISSUES = [
+        'price_missing' => ['缺少实际成交价格', 'Missing actual price'],
+        'price_invalid' => ['价格无效／公式错误', 'Invalid price / formula error'],
+        'price_currency_conflict' => ['价格币种不是 CNY', 'Price currency differs from CNY'],
+        'procurement_date_missing' => ['缺少有效采购日期', 'Missing valid procurement date'],
+        'customer_missing' => ['缺少客户名', 'Missing customer'],
+        'brand_code_missing' => ['缺少品牌代号', 'Missing brand code'],
+        'supplier_missing' => ['缺少供应商', 'Missing supplier'],
+        'date_outside_sheet' => ['采购日期不在来源月份', 'Date outside source month'],
+        'legacy_price_column' => ['使用旧表“价格”列', 'Legacy Price column used'],
     ];
 
     /**
-     * 注入数据库聚合和分页依赖。
+     * 注入 SQL 聚合仓储。
      *
-     * @param AnalysisDao $analysisDao 采购快照查询仓储
+     * @param AnalysisDao $analysisDao 采购统计及分页查询
      * @return void 完成依赖初始化
      */
     public function __construct(private AnalysisDao $analysisDao)
@@ -60,10 +71,10 @@ class AnalysisService
     }
 
     /**
-     * 返回筛选项、当前导入来源以及列表/导出共用列定义。
+     * 返回中英文字典和页面／导出共用表头。
      *
      * @param string $locale zh-CN 或 en-US
-     * @return array 字典、当前批次与当前语言列定义
+     * @return array 当前有效批次、月份、字典、列定义
      */
     public function options(string $locale): array
     {
@@ -77,66 +88,65 @@ class AnalysisService
     }
 
     /**
-     * 一次请求返回各统计模块，减少页面独立请求开销；明细仍单独分页。
+     * 从同一数据库快照返回概览、趋势、排行占比和交叉分析。
      *
-     * @param array $filters 日期、维度筛选及 grain（day/month）
-     * @return array 质量摘要、分币种金额、趋势和六个维度的分布
+     * @param array $filters 日期及品牌、品类、采购方式等筛选
+     * @return array summary、trend、distributions、crosses，币种固定 CNY
      */
     public function report(array $filters): array
     {
-        $summary = $this->analysisDao->summary($filters);
-        $totals = $this->analysisDao->totals($filters);
-        $distributions = [];
-        foreach (array_keys(AnalysisDao::DIMENSIONS) as $dimension) {
-            $distributions[$dimension] = $this->analysisDao->distribution($filters, $dimension);
-        }
+        return DB::transaction(function () use ($filters): array {
+            DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            $summary = $this->analysisDao->summary($filters);
+            $distributions = [];
+            foreach (array_keys(AnalysisDao::DIMENSIONS) as $dimension) {
+                $distributions[$dimension] = $this->analysisDao->distribution($filters, $dimension);
+            }
+            $crosses = [];
+            foreach (['brand_category' => ['brand', 'category'], 'category_price' => ['category', 'price_band'],
+                'customer_brand' => ['customer_type', 'brand'], 'customer_category' => ['customer_type', 'category']] as $key => [$left, $right]) {
+                $crosses[$key] = $this->analysisDao->cross($filters, $left, $right);
+            }
 
-        return [
-            'summary' => $summary, 'totals' => $totals,
-            'trend' => $this->trend($filters, $summary, $totals),
-            'distributions' => $distributions,
-            'metric_basis' => 'procurement_actual_transaction_price',
-        ];
+            return ['summary' => $summary, 'trend' => $this->trend($filters, $summary),
+                'distributions' => $distributions, 'crosses' => $crosses, 'currency' => 'CNY',
+                'metric_basis' => 'purchased_procurement_actual_price', 'customer_basis' => 'normalized_name_first_procurement_day'];
+        });
     }
 
     /**
-     * 填补选择区间内缺记录的日期；空档金额为 null，避免伪造完整销售历史。
+     * 趋势独立扩展至完整自然月／年，避免月度筛选截断全年趋势。
      *
-     * @param array $filters 日期范围及 grain
-     * @param array $summary 当前筛选的实际日期边界
-     * @param array $totals 当前筛选使用的币种
-     * @return array 包含完整横轴 periods、数据库 points 和 grain 的趋势
+     * @param array $filters 已查询日期及 grain；仅趋势扩展日期，品牌等筛选原样保留
+     * @param array $summary 有效成交日期边界
+     * @return array grain、startDate、endDate、完整 periods 及 points；概览仍使用原始日期
      */
-    private function trend(array $filters, array $summary, array $totals): array
+    private function trend(array $filters, array $summary): array
     {
         $grain = $filters['grain'] ?? 'month';
-        $start = $filters['startDate'] ?? $summary['first_date'];
-        $end = $filters['endDate'] ?? $summary['last_date'];
+        $today = CarbonImmutable::now('Asia/Shanghai')->toDateString();
+        $start = CarbonImmutable::parse($filters['startDate'] ?? $summary['first_date'] ?? $filters['endDate'] ?? $today);
+        $end = CarbonImmutable::parse($filters['endDate'] ?? $summary['last_date'] ?? $filters['startDate'] ?? $today);
+        $start = $grain === 'month' ? $start->startOfYear() : $start->startOfMonth();
+        $end = $grain === 'month' ? $end->endOfYear() : $end->endOfMonth();
+        if ($start->diffInDays($end) > 20000) {
+            throw ValidationException::withMessages(['startDate' => '日期范围不能超过 20,000 天。']);
+        }
+        $trendFilters = array_replace($filters, ['startDate' => $start->toDateString(), 'endDate' => $end->toDateString()]);
         $periods = [];
-        if ($start && $end) {
-            $cursor = CarbonImmutable::parse($start);
-            $last = CarbonImmutable::parse($end);
-            if ($grain === 'month') {
-                $cursor = $cursor->startOfMonth();
-                $last = $last->startOfMonth();
-            }
-            if ($cursor->diffInDays($last) > 20000) {
-                throw ValidationException::withMessages(['startDate' => 'The date range exceeds 20,000 days.']);
-            }
-            while ($cursor <= $last) {
-                $periods[] = $cursor->format($grain === 'day' ? 'Y-m-d' : 'Y-m');
-                $cursor = $grain === 'day' ? $cursor->addDay() : $cursor->addMonth();
-            }
+        for ($cursor = $start; $cursor <= $end; $cursor = $grain === 'day' ? $cursor->addDay() : $cursor->addMonth()) {
+            $periods[] = $cursor->format($grain === 'day' ? 'Y-m-d' : 'Y-m');
         }
 
-        return ['grain' => $grain, 'periods' => $periods, 'currencies' => array_column($totals, 'currency'), 'points' => $this->analysisDao->trend($filters, $grain)];
+        return ['grain' => $grain, 'startDate' => $start->toDateString(), 'endDate' => $end->toDateString(),
+            'periods' => $periods, 'points' => $this->analysisDao->trend($trendFilters, $grain)];
     }
 
     /**
-     * 返回当前页明细，金额保持两位小数字符串。
+     * 分页展示成交明细或缺失／分类核查行。
      *
-     * @param array $filters 筛选条件和分页参数，locale 控制派生文字
-     * @return array list、total、page、per_page、last_page
+     * @param array $filters 统一筛选、scope、quality、locale 及分页
+     * @return array 当前页 list 和分页元数据
      */
     public function listing(array $filters): array
     {
@@ -147,10 +157,23 @@ class AnalysisService
     }
 
     /**
-     * 返回分页采集历史。
+     * 返回按客户名汇总的明细分页。
+     *
+     * @param array $filters 统一筛选和分页条件
+     * @return array 客户金额、首购日、复购金额及分页元数据
+     */
+    public function customers(array $filters): array
+    {
+        $page = $this->analysisDao->customers($filters);
+
+        return $this->page($page, $page->items());
+    }
+
+    /**
+     * 返回上传历史和操作者名称。
      *
      * @param array $filters page 和 per_page
-     * @return array 导入版本列表及分页元数据
+     * @return array 当前页导入批次及有效月份
      */
     public function imports(array $filters): array
     {
@@ -160,22 +183,23 @@ class AnalysisService
     }
 
     /**
-     * 整理统一分页响应结构。
+     * 统一分页结构。
      *
-     * @param LengthAwarePaginator $page 已执行的数据库分页结果
-     * @param array $rows 已转换的当前页数据
-     * @return array 前端统一分页结构
+     * @param LengthAwarePaginator $page SQL 分页结果
+     * @param array $rows 格式化后的本页行
+     * @return array list、total、page、per_page、last_page
      */
     private function page(LengthAwarePaginator $page, array $rows): array
     {
-        return ['list' => $rows, 'total' => $page->total(), 'page' => $page->currentPage(), 'per_page' => $page->perPage(), 'last_page' => $page->lastPage()];
+        return ['list' => $rows, 'total' => $page->total(), 'page' => $page->currentPage(),
+            'per_page' => $page->perPage(), 'last_page' => $page->lastPage()];
     }
 
     /**
-     * 读取原始行与匹配依据，供待确认记录核查。
+     * 查询单行原始单元格、公式及匹配依据。
      *
-     * @param int $id 当前采购记录主键
-     * @return array 原始单元格、公式缓存来源与匹配证据；不存在时返回 404
+     * @param int $id 有效明细主键
+     * @return array 来源文件、行号、原始值和分类证据，不存在返回 404
      */
     public function evidence(int $id): array
     {
@@ -190,54 +214,58 @@ class AnalysisService
     }
 
     /**
-     * 将派生枚举和字典转换成当前语言，供列表和导出共用。
+     * 统一页面和导出的字段、枚举及两位金额文字。
      *
-     * @param object $record 数据库明细投影
-     * @param string $locale 当前界面语言
-     * @return array 带原始字段和 display 显示值的明细
+     * @param object $record 数据库采购明细
+     * @param string $locale 当前语言
+     * @return array 原始字段和 display 显示字段
      */
     private function present(object $record, string $locale): array
     {
         $row = (array) $record;
         $index = $locale === 'en-US' ? 1 : 0;
-        $row['brand'] = ($index ? $row['brand_en'] : $row['brand_zh']) ?: $row['brand_raw'];
-        $row['category'] = $index ? $row['category_en'] : $row['category_zh'];
+        $row['brand'] = ($index ? $row['brand_name_en'] : $row['brand_name']) ?: ($index ? 'Unclassified' : '待分类');
+        $row['category'] = ($index ? $row['category_name_en'] : $row['category_name']) ?: ($index ? 'Unclassified' : '待分类');
+        $issues = json_decode($row['issues'] ?? '[]', true) ?: [];
+        $row['issues_text'] = implode('；', array_map(static fn (string $issue): string => self::ISSUES[$issue][$index] ?? $issue, $issues));
         $display = [];
         foreach (array_keys(self::COLUMNS) as $field) {
             $value = $row[$field] ?? null;
-            $display[$field] = in_array($field, ['date_basis', 'record_type', 'price_basis', 'customer_type', 'classification_status', 'order_match_status'], true)
-                ? (self::LABELS[$value ?? 'unknown'][$index] ?? $value)
-                : ($value ?? '—');
+            $display[$field] = in_array($field, ['customer_type', 'purchase_method', 'price_status', 'brand_match_status', 'classification_status'], true)
+                ? (self::LABELS[$value ?? 'unknown'][$index] ?? $value) : ($value ?? '—');
         }
+        // 私有单元格详情单独按主键查询，列表不重复传输整行 JSON。
+        unset($row['raw'], $row['classification_evidence']);
 
         return $row + ['display' => $display];
     }
 
     /**
-     * 导出当前全部筛选结果，字段、顺序和显示文字与页面完全一致。
+     * 导出所有筛选记录，列名及显示值与当前语言的页面一致。
      *
-     * @param array $filters 统一筛选条件；locale 为导出语言
-     * @return StreamedResponse UTF-8 BOM CSV；逐块读取，避免一次加载全表
+     * @param array $filters 与列表一致的筛选，忽略分页
+     * @return StreamedResponse UTF-8 BOM CSV，分块读取且防止公式注入
      */
     public function export(array $filters): StreamedResponse
     {
         $locale = $filters['locale'] ?? 'zh-CN';
+        $rows = $this->analysisDao->exportRows($filters);
 
-        return response()->streamDownload(function () use ($filters, $locale): void {
+        return response()->streamDownload(function () use ($rows, $locale): void {
             $stream = fopen('php://output', 'w');
             fwrite($stream, "\xEF\xBB\xBF");
             fputcsv($stream, array_column(self::COLUMNS, $locale === 'en-US' ? 1 : 0), ',', '"', '');
-            foreach ($this->analysisDao->exportRows($filters) as $row) {
+            foreach ($rows as $row) {
                 $display = $this->present($row, $locale)['display'];
                 $cells = [];
                 foreach (array_keys(self::COLUMNS) as $field) {
                     $value = (string) $display[$field];
-                    $numeric = in_array($field, ['actual_price', 'quantity', 'analysis_amount', 'row_number'], true) && preg_match('/^-?\d+(\.\d+)?$/D', $value);
+                    $numeric = in_array($field, ['supplier_quote', 'actual_price', 'analysis_amount', 'row_number'], true) && preg_match('/^-?\d+(\.\d+)?$/D', $value);
                     $cells[] = !$numeric && preg_match('/^[\s\x00-\x1f]*[=+@-]/u', $value) ? "'" . $value : $value;
                 }
                 fputcsv($stream, $cells, ',', '"', '');
             }
             fclose($stream);
-        }, 'analysis-' . now()->format('Ymd-His') . '.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+        }, 'analysis-CNY-' . now()->format('Ymd-His') . '.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 }

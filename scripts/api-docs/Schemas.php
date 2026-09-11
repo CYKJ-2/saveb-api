@@ -227,25 +227,30 @@ function schemas(): array
     $s['ValidationError'] = shape('message:s:校验失败摘要;errors:#[]s:字段名到错误消息数组，支持 items.0.price 等嵌套字段');
     $s['HttpError'] = shape('message:s:HTTP 异常信息', ['additionalProperties' => true]);
 
-    $s['AnalysisImportSummary'] = shape('sheets:[]AnalysisSheet:各工作表采集量;rows:i:采购记录或供应商关系数;price_missing_or_invalid:i:价格缺失或无效行数;amount_unavailable:i:无法计算金额行数;category_matched:i:采集时品类匹配行数;brand_matched:i:采集时品牌匹配行数;orders_matched:i:采集时订单匹配行数;cancelled:i:取消采购行数');
-    $s['AnalysisSheet'] = shape('name:s:工作表名称;rows:i:有效来源行或规则关系数量');
-    $s['AnalysisImport'] = shape('id:i:版本主键;source_type:s:suppliers 或 procurement;source_url:s:只读在线来源地址;filename:s:文件显示名称;file_hash:s:SHA256 文件摘要;signature:s:文件与口径组合摘要;is_active:b:当前版本;currency:?s:确认币种;price_basis:s:row_total 或 unit 或 unknown;summary:AnalysisImportSummary:导入时质量快照;created_by:?i:采集用户，CLI 时可空;created_at:time:ISO 创建时间;updated_at:time:ISO 更新时间');
-    $s['AnalysisImportPage'] = shape('list:[]AnalysisImport:当前页版本;total:i:版本总数;page:i:当前页;per_page:i:每页数量;last_page:i:最后页');
-    $s['AnalysisImported'] = shape('id:i:当前生效版本 ID;reused:b:是否复用已有文件及口径;summary:AnalysisImportSummary:导入质量快照');
+    $s['AnalysisImportSummary'] = shape('sheets:[]AnalysisSheet:各工作表采集量;rows:i:采购行或供应商规则数;eligible_rows:i:已采购且有效价格行数;amount:s:CNY 两位小数;price_missing_or_invalid:i:价格缺失或无效;missing_date:i:缺少有效采购日期;missing_customer:i:缺少客户名;unclassified_brand:i:品牌待核查;unclassified_category:i:品类待核查');
+    $s['AnalysisSheet'] = shape('name:s:Sheet 名称;rows:i:来源记录或映射规则数');
+    $s['AnalysisImport'] = shape('id:i:批次主键;source_type:s:suppliers 或 procurement;filename:s:文件名;file_hash:s:SHA256 文件摘要;signature:s:文件与模式及月份摘要;is_active:b:是否仍有有效数据;currency:s:固定 CNY;price_basis:s:固定 row_total;mode:s:initialize 或 current_month 或 dictionary;periods:[]s:导入月份 YYYY-MM;active_periods:[]s:当前仍有效的月份;status:s:成功批次为 completed，有效性由 is_active 与 active_periods 判断;summary:AnalysisImportSummary:导入时质量快照;created_by:?i:操作者 ID，CLI 可空;created_at:time:创建时间;updated_at:time:更新时间');
+    $s['AnalysisImportListItem'] = ['allOf' => [ref('AnalysisImport'), shape('operator_name:?s:操作者显示名，CLI 为空时页面显示系统导入')]];
+    $s['AnalysisImportPage'] = shape('list:[]AnalysisImportListItem:当前页;total:i:批次总数;page:i:页码;per_page:i:每页条数;last_page:i:最后页');
+    $s['AnalysisImported'] = shape('id:i:生效批次;reused:b:相同文件和月份是否复用;periods:[]s:本次月份范围，供应商为空;summary:AnalysisImportSummary:导入结果');
     $s['AnalysisCategory'] = shape('id:i:品类主键;code:s:品类代码;name_zh:s:中文名称;name_en:s:英文名称');
     $s['AnalysisBrand'] = shape('id:i:品牌主键;name_zh:s:中文名称;name_en:s:英文名称');
-    $s['AnalysisColumn'] = shape('key:s:显示字段;label:s:当前语言列名称');
-    $s['AnalysisOptions'] = shape('categories:[]AnalysisCategory:品类字典;brands:[]AnalysisBrand:当前数据使用的品牌;currencies:[]s:当前币种;countries:[]s:已知国家; sheets:[]s:当前工作表;imports:[]AnalysisImport:当前来源版本;columns:[]AnalysisColumn:列表与导出共用的列顺序和名称');
-    $s['AnalysisSummary'] = shape('rows:i:采购行数，不是订单数;amount_rows:i:可计算金额行数;category_rows:i:已匹配品类行数;brand_rows:i:已匹配品牌行数;linked_rows:i:可靠关联订单行数;country_rows:i:已知国家行数;customer_rows:i:已知顾客类型行数;fallback_date_rows:i:非顾客下单日期或无日期行数;cancelled_rows:i:取消采购行数;linked_orders:i:关联的不同订单数;first_date:?date:最早统计日期;last_date:?date:最新统计日期');
-    $s['AnalysisTotal'] = shape('currency:?s:币种，未确认时 null;rows:i:记录数;amount_rows:i:有效金额记录数;amount:?s:两位小数金额，无有效金额时 null');
-    $s['AnalysisPoint'] = ['allOf' => [ref('AnalysisTotal'), shape('period:s:YYYY-MM-DD 或 YYYY-MM')]];
-    $s['AnalysisDistribution'] = ['allOf' => [ref('AnalysisTotal'), shape('key:s:分组名称或 unknown')]];
-    $s['AnalysisTrend'] = shape('grain:s:day 或 month;periods:[]s:完整筛选日期轴;currencies:[]?s:币种列表;points:[]AnalysisPoint:实际有记录的日期汇总，空档未伪造为零');
-    $s['AnalysisReport'] = shape('summary:AnalysisSummary:质量及记录摘要;totals:[]AnalysisTotal:分币种金额;trend:AnalysisTrend:逐日逐月趋势;distributions:AnalysisDistributions:维度分布;metric_basis:s:procurement_actual_transaction_price');
-    $s['AnalysisDistributions'] = shape('brand:[]AnalysisDistribution:品牌;category:[]AnalysisDistribution:品类;supplier:[]AnalysisDistribution:供应商;price_band:[]AnalysisDistribution:原表价格区间;country:[]AnalysisDistribution:国家;customer_type:[]AnalysisDistribution:已知历史顾客类型');
-    $s['AnalysisRow'] = shape('id:i:采购行主键;sheet_name:s:工作表;row_number:i:来源行号;analysis_date:?date:统计日期;date_basis:s:日期来源;customer_order_date:?date:顾客下单日期;procurement_date:?date:采购日期;order_reference:?s:原表订单文本;product_description:?s:货号描述;supplier_raw:?s:供应商原文;customer_name:?s:客户原文;brand_raw:?s:品牌原文;actual_price:?s:原价两位小数;price_raw:?s:未改写原价文本;price_column:?s:来源价格列名;quantity:?s:数量四位小数;analysis_amount:?s:按确认口径计算金额;price_basis:s:价格口径;price_status:s:valid 或 missing 或 invalid 或 currency_conflict;currency:?s:币种;purchase_status:?s:原表采购状态;is_cancelled:b:取消标记;record_type:s:采购类型;classification_status:s:品类匹配状态;order_match_status:s:订单匹配状态;linked_order_type:?s:ordinary 或 invoice;linked_order_id:?i:匹配订单 ID;country:?s:国家;customer_type:s:unknown 或 first 或 returning;issues:s:原始 JSON 待核对项;category_code:?s:品类 code;category_zh:?s:中文品类;category_en:?s:英文品类;brand_zh:?s:中文品牌;brand_en:?s:英文品牌;brand:?s:显示品牌;category:?s:显示品类;display:obj:按 columns 顺序提供当前语言显示值，列表和导出共用');
-    $s['AnalysisRowPage'] = shape('list:[]AnalysisRow:当前页;total:i:总条数;page:i:当前页;per_page:i:每页默认20;last_page:i:最后页');
-    $s['AnalysisEvidence'] = shape('raw:obj:原始行号、单元格及公式文本和缓存;classification_evidence:obj:供应商及品牌候选和匹配依据;issues:[]s:待核对项;filename:s:文件名;source_url:s:只读来源;sheet_name:s:工作表;row_number:i:来源行号');
+    $s['AnalysisSupplier'] = shape('id:i:供应商主键;name:s:名称');
+    $s['AnalysisColumn'] = shape('key:s:字段名;label:s:当前语言列名');
+    $s['AnalysisOptions'] = shape('categories:[]AnalysisCategory:品类字典;brands:[]AnalysisBrand:品牌字典;suppliers:[]AnalysisSupplier:供应商字典;periods:[]s:当前已导入月份;imports:[]AnalysisImport:仍有效的来源批次;can_initialize:b:是否尚无采购历史;current_month:s:北京时间当前月 YYYY-MM;currency:s:固定 CNY;columns:[]AnalysisColumn:列表与 CSV 共用的列顺序和名称');
+    $s['AnalysisSummary'] = shape('rows:i:全部来源行数;eligible_rows:i:纳入成交统计行数;amount:s:CNY 两位金额;average_amount:s:每有效采购行平均金额;customers:i:有效行非空标准客户名数量;missing_price:i:价格缺失或无效行数;missing_date:i:采购日期缺失数;missing_customer:i:客户名缺失数;unclassified_brand:i:品牌未可靠匹配数;unclassified_category:i:品类未可靠匹配数;undated_amount:s:计入总览但不能进入趋势的金额;first_date:?date:有效行最早采购日期;last_date:?date:有效行最新采购日期');
+    $s['AnalysisPoint'] = shape('period:s:YYYY-MM-DD 或 YYYY-MM;rows:i:有效采购行数;amount:s:CNY 两位金额');
+    $s['AnalysisDistribution'] = shape('key:id:分组主键或枚举;name_zh:s:中文名称;name_en:s:英文名称;rows:i:有效采购行数;amount:s:CNY 两位金额;share:s:占全部筛选金额的百分比，两位小数');
+    $s['AnalysisTrend'] = shape('grain:s:day 或 month;startDate:date:趋势实际起始日，日粒度扩展至月初，月粒度扩展至年初;endDate:date:趋势实际结束日，日粒度扩展至月末，月粒度扩展至年末;periods:[]s:完整月份或日期轴，即使无数据也保留;points:[]AnalysisPoint:扩展日期范围内的成交汇总，其他业务筛选仍生效');
+    $s['AnalysisCrossCell'] = shape('x:id:行维度键;x_zh:s:行中文名;x_en:s:行英文名;y:id:列维度键;y_zh:s:列中文名;y_en:s:列英文名;rows:i:有效采购记录数;amount:s:CNY 两位金额');
+    $s['AnalysisCrosses'] = shape('brand_category:[]AnalysisCrossCell:品牌乘品类;category_price:[]AnalysisCrossCell:品类乘价格区间;customer_brand:[]AnalysisCrossCell:首复购乘品牌;customer_category:[]AnalysisCrossCell:首复购乘品类');
+    $s['AnalysisDistributions'] = shape('brand:[]AnalysisDistribution:品牌排行;category:[]AnalysisDistribution:品类排行;supplier:[]AnalysisDistribution:供应商;price_band:[]AnalysisDistribution:实际价格区间;purchase_method:[]AnalysisDistribution:采购方式;customer_type:[]AnalysisDistribution:首购复购未知');
+    $s['AnalysisReport'] = shape('summary:AnalysisSummary:总览及质量;trend:AnalysisTrend:日期趋势;distributions:AnalysisDistributions:维度分布;crosses:AnalysisCrosses:四组交叉;currency:s:固定 CNY;metric_basis:s:purchased_procurement_actual_price;customer_basis:s:normalized_name_first_procurement_day');
+    $s['AnalysisRow'] = shape('id:i:采购行主键;import_id:i:来源批次;source_period:s:Sheet 对应月份;sheet_name:s:来源 Sheet;row_number:i:Excel 行号;is_current:b:当前有效快照;is_eligible:b:是否计入金额;analysis_date:?date:发起采购日期;customer_order_date:?date:原始顾客下单日期;procurement_date:?date:发起采购日期;order_reference:?s:下单形式或单号原文;purchase_method:s:解析后的采购方式;product_description:?s:货号;customer_name:?s:客户原名;customer_key:?s:规范化客户名;customer_first_date:?date:完整有效历史最早采购日;customer_type:s:first returning unknown;brand_raw:?s:原始品牌代号;supplier_raw:?s:供应商原文;brand_id:i:品牌字典 ID，待确认也使用共享待分类 ID;brand_name:s:品牌中文快照;brand_name_en:s:品牌英文快照;category_id:?i:品类 ID;category_code:?s:品类代码;category_name:?s:中文快照;category_name_en:?s:英文快照;supplier_id:?i:供应商 ID;supplier_name:?s:供应商名称快照;brand_match_status:s:品牌匹配状态;classification_status:s:品类匹配状态;mapping_import_id:?i:使用的字典批次;actual_price:?s:有效实际价格两位小数;analysis_amount:?s:纳入统计金额，非已采购或无效价格时 null;supplier_quote:?s:供应商定价;price_raw:?s:原始价格文本;price_column:?s:来源价格列名;price_status:s:valid missing invalid currency_conflict;currency:s:CNY;price_basis:s:row_total;purchase_status:?s:是否采购原文;brand:s:当前语言品牌名;category:s:当前语言品类名;issues_text:s:当前语言核查提示;display:obj:与 columns 一致的 25 列显示值，列表与导出共用');
+    $s['AnalysisRowPage'] = shape('list:[]AnalysisRow:当前页;total:i:全部筛选行数;page:i:页码;per_page:i:默认20，可50或100;last_page:i:最后页');
+    $s['AnalysisCustomer'] = shape('customer_key:s:规范化客户名;customer_name:s:来源客户名;rows:i:筛选范围内有效采购行数;first_date:?date:完整历史首购日;last_date:?date:筛选范围最新采购日期;brands:i:不同品牌 ID 数;categories:i:不同非空品类数;amount:s:CNY 两位金额;first_amount:s:首购日金额;returning_amount:s:后续日期复购金额');
+    $s['AnalysisCustomerPage'] = shape('list:[]AnalysisCustomer:客户汇总当前页;total:i:客户总数;page:i:页码;per_page:i:默认20;last_page:i:最后页');
+    $s['AnalysisEvidence'] = shape('id:i:当前采购行 ID;raw:obj:原始行号和单元格及公式缓存;classification_evidence:obj:品牌品类候选和证据;issues:[]s:核查代码;filename:s:来源文件名;sheet_name:s:Sheet 名称;row_number:i:来源行号;brand_name:s:已保存的中文品牌;brand_name_en:s:已保存的英文品牌;category_name:s:已保存的中文品类;category_name_en:s:已保存的英文品类');
 
     return $s;
 }

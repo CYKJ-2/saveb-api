@@ -26,7 +26,7 @@ class AnalysisController
     /**
      * 校验所有统计模块共用的筛选条件。
      *
-     * @param Request $request 日期、品牌/品类主键、国家、币种、客户类型、质量及分页参数
+     * @param Request $request 日期、品牌/品类主键、采购方式、客户类型、质量及分页参数
      * @return array 已校验参数；日期 YYYY-MM-DD，grain day/month，per_page 20/50/100
      */
     private function filters(Request $request): array
@@ -35,12 +35,13 @@ class AnalysisController
             'startDate' => 'nullable|date_format:Y-m-d',
             'endDate' => 'nullable|date_format:Y-m-d' . ($request->filled('startDate') ? '|after_or_equal:startDate' : ''),
             'category_id' => 'nullable|integer|min:1', 'brand_id' => 'nullable|integer|min:1', 'supplier_id' => 'nullable|integer|min:1',
-            'country' => 'nullable|string|max:100', 'currency' => 'nullable|regex:/^[A-Z]{3}$/',
+            'source_period' => 'nullable|date_format:Y-m',
+            'customer_key' => 'nullable|string|max:500',
             'customer_type' => 'nullable|in:unknown,first,returning',
-            'classification_status' => 'nullable|in:matched,unmatched,ambiguous,conflict',
-            'record_type' => 'nullable|in:ordinary,invoice,after_sale,other_procurement',
-            'sheet_name' => 'nullable|string|max:255', 'keyword' => 'nullable|string|max:255',
-            'quality' => 'nullable|in:needs_review', 'include_cancelled' => 'sometimes|boolean',
+            'purchase_method' => 'nullable|in:ws,pl,invoice,after_sale,influencer,accessory,unknown',
+            'price_band' => 'nullable|in:negative,0-99.99,100-299.99,300-499.99,500-999.99,1000-2999.99,3000+',
+            'keyword' => 'nullable|string|max:255',
+            'scope' => 'nullable|in:eligible,all', 'quality' => 'nullable|in:needs_review,missing,classification',
             'grain' => 'nullable|in:day,month', 'locale' => 'nullable|in:zh-CN,en-US',
             'page' => 'nullable|integer|min:1', 'per_page' => 'nullable|integer|in:20,50,100',
         ]);
@@ -60,10 +61,10 @@ class AnalysisController
     }
 
     /**
-     * 查询汇总、逐日逐月趋势和品牌/品类/供应商/价位/国家/顾客分布。
+     * 查询成交汇总、逐日逐月趋势、排行占比及四类交叉分析。
      *
      * @param Request $request filters() 定义的统一条件；不传日期时为导入数据全部历史
-     * @return JsonResponse data 包含 summary、totals、trend、distributions，金额为两位小数字符串或 null
+     * @return JsonResponse data 包含 summary、trend、distributions、crosses，金额为 CNY 两位小数字符串
      */
     public function report(Request $request): JsonResponse
     {
@@ -104,16 +105,16 @@ class AnalysisController
     }
 
     /**
-     * 从完整 XLSX 副本采集所有 sheet，成功后原子切换该类来源当前版本。
+     * 从 XLSX 副本采集采购当月或供应商字典；首次可显式导入全部历史。
      *
-     * @param Request $request multipart file（≤64MB）、source_type（suppliers/procurement）、currency（可空）、price_basis（row_total/unit/unknown）
+     * @param Request $request multipart file（≤256MB）、source_type（suppliers/procurement）、mode（current_month 默认／initialize 首次）；CNY 每行实际成交价格
      * @return JsonResponse data 包含批次 id、reused 及各 sheet 行数；失败时旧版本仍有效
      */
     public function import(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'file' => 'required|file|extensions:xlsx|max:65536', 'source_type' => 'required|in:suppliers,procurement',
-            'currency' => 'nullable|regex:/^[A-Z]{3}$/', 'price_basis' => 'required|in:row_total,unit,unknown',
+            'file' => 'required|file|extensions:xlsx|max:262144', 'source_type' => 'required|in:suppliers,procurement',
+            'mode' => 'sometimes|in:current_month,initialize',
         ]);
         $file = $request->file('file');
 
@@ -121,10 +122,22 @@ class AnalysisController
             $file->getRealPath(),
             $file->getClientOriginalName(),
             $data['source_type'],
-            $data['currency'] ?? null,
-            $data['price_basis'],
+            'CNY',
+            'row_total',
             $request->attributes->get('auth_user')?->id,
+            $data['mode'] ?? 'current_month',
         ));
+    }
+
+    /**
+     * 分页查询客户名维度汇总。
+     *
+     * @param Request $request 统一业务筛选及 page、per_page
+     * @return JsonResponse 客户金额、记录数、完整历史首次采购日期及分页
+     */
+    public function customers(Request $request): JsonResponse
+    {
+        return AppResponse::success($this->analysisService->customers($this->filters($request)));
     }
 
     /**

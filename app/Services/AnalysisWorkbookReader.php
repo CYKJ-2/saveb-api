@@ -17,9 +17,10 @@ class AnalysisWorkbookReader
      * 逐个读取工作表，包括隐藏行列，并保留真实行号与列字母。
      *
      * @param string $path 本地 XLSX 文件绝对路径；文件不会被修改
+     * @param callable|null $acceptSheet 可选 Sheet 名过滤器，在读取工作表 XML 前执行
      * @return Generator<int, array{name: string, rows: array}> 各工作表名称和非空行；公式保留文本及已有缓存
      */
-    public function sheets(string $path): Generator
+    public function sheets(string $path, ?callable $acceptSheet = null): Generator
     {
         $archive = new ZipArchive();
         if ($archive->open($path) !== true) {
@@ -30,7 +31,7 @@ class AnalysisWorkbookReader
             $relationships = $this->xml($this->entry($archive, 'xl/_rels/workbook.xml.rels'));
             $sharedStrings = $this->sharedStrings($archive);
             $targets = [];
-            foreach ($relationships->Relationship as $relationship) {
+            foreach ($relationships->xpath('/*/*[local-name()="Relationship"]') ?: [] as $relationship) {
                 if ((string) $relationship['TargetMode'] === 'External') {
                     continue;
                 }
@@ -40,11 +41,15 @@ class AnalysisWorkbookReader
                 }
                 $targets[(string) $relationship['Id']] = str_starts_with($target, '/') ? ltrim($target, '/') : 'xl/' . $target;
             }
-            if (count($workbook->sheets->sheet) > 40) {
+            $sheets = $workbook->xpath('/*/*[local-name()="sheets"]/*[local-name()="sheet"]') ?: [];
+            if (count($sheets) > 40) {
                 throw ValidationException::withMessages(['file' => 'At most 40 worksheets are supported.']);
             }
             $date1904 = (string) ($workbook->workbookPr['date1904'] ?? '') === '1';
-            foreach ($workbook->sheets->sheet as $sheet) {
+            foreach ($sheets as $sheet) {
+                if ($acceptSheet !== null && !$acceptSheet((string) $sheet['name'])) {
+                    continue;
+                }
                 $relationshipId = (string) $sheet->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships')['id'];
                 if (!isset($targets[$relationshipId])) {
                     throw ValidationException::withMessages(['file' => 'Worksheet relationship is missing.']);
@@ -145,20 +150,21 @@ class AnalysisWorkbookReader
             $node = $this->xml($reader->readOuterXml());
             $cells = [];
             $formulas = [];
-            foreach ($node->c as $cell) {
+            foreach ($node->xpath('./*[local-name()="c"]') ?: [] as $cell) {
                 preg_match('/^([A-Z]+)[0-9]+$/', (string) $cell['r'], $address);
                 if (!isset($address[1])) {
                     continue;
                 }
                 $type = (string) $cell['t'];
-                $value = (string) $cell->v;
+                $value = (string) (($cell->xpath('./*[local-name()="v"]') ?: [])[0] ?? '');
                 if ($type === 's') {
                     $value = $sharedStrings[(int) $value] ?? '';
                 } elseif ($type === 'inlineStr') {
                     $value = implode('', array_map(static fn (SimpleXMLElement $text): string => (string) $text, $cell->xpath('.//*[local-name()="t"]') ?: []));
                 }
-                if (isset($cell->f)) {
-                    $formulas[$address[1]] = (string) $cell->f;
+                $formula = ($cell->xpath('./*[local-name()="f"]') ?: [])[0] ?? null;
+                if ($formula !== null) {
+                    $formulas[$address[1]] = (string) $formula;
                 }
                 if ($value !== '') {
                     $cells[$address[1]] = $value;

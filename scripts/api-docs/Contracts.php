@@ -22,11 +22,12 @@ function contract(string $controller, string $method, string $verb, array $defau
     $maps = [
         'Analysis' => [
             'options' => ['分析筛选项与双语列定义', 'AnalysisOptions'],
-            'report' => ['成交价格汇总、逐日逐月趋势及六维分布', 'AnalysisReport'],
+            'report' => ['CNY 成交总览、日月趋势、排行占比和四组交叉分析', 'AnalysisReport'],
             'index' => ['分析明细分页（默认 20 条）', 'AnalysisRowPage'],
+            'customers' => ['客户名汇总分页及完整历史首购日期', 'AnalysisCustomerPage'],
             'evidence' => ['采购原始行与分类依据', 'AnalysisEvidence'],
             'imports' => ['采集版本历史分页', 'AnalysisImportPage'],
-            'import' => ['采集 XLSX 完整副本的全部工作表', 'AnalysisImported'],
+            'import' => ['上传采购当月快照或供应商映射，首次可初始化历史', 'AnalysisImported'],
             'export' => ['按当前语言导出全部分析明细', 'csv'],
         ],
         'Auth' => ['login' => ['账号密码登录', 'Login'], 'me' => ['当前用户与权限树', 'Me'], 'logout' => ['退出并撤销当前令牌', 'Message']],
@@ -72,10 +73,13 @@ function contract(string $controller, string $method, string $verb, array $defau
         if ($method !== 'import' && $method !== 'evidence') {
             $result['rules']['endDate'] = 'nullable|date_format:Y-m-d';
         }
-        $result['notes'][] = '采集采购表实际成交价格，不等于客户付款额或净销售额。币种分开汇总，金额为两位小数字符串；缺少币种、口径或数量时金额为 null，不按零处理。日期优先顾客下单日期，缺失时采用采购/原表日期并保留依据。取消采购默认排除。';
-        $result['notes'][] = '未传日期表示全部已导入历史；传 startDate 时 endDate 不得早于它。供应商、品牌、商品描述的唯一一致候选才自动分类；无法可靠关联订单时国家及顾客类型保留未知。首购仅表示系统已知历史中的首次。';
+        $result['notes'][] = '仅使用采购集成表及供应商字典，不关联收单或订单系统。金额固定 CNY，以已采购且价格有效的每行实际成交价格直接汇总，不推算数量。金额为两位小数字符串，缺失价格保留 null。趋势使用发起采购日期，缺日期金额只纳入无日期限制的总览。';
+        $result['notes'][] = '未传日期为全部已导入历史。品牌代号与供应商联合匹配品类；品牌待确认统一待分类。首复购按规范化客户名和完整有效采购历史判断：最早采购日所有行是首购，后续日期是复购；缺名或日期为未知。筛选不改变首次日期。';
+        if ($method === 'report') {
+            $result['notes'][] = '页面默认传入北京时间当月起止日期。概览、排行及交叉按原日期查询；只有趋势日期会扩展：grain=month 到对应完整自然年，grain=day 到对应完整自然月。品牌、品类等条件保留。trend.startDate/endDate 返回实际趋势范围；无数据月份仍保留坐标。';
+        }
         if ($method === 'import') {
-            $result['notes'][] = 'multipart/form-data 上传 file，扩展名 xlsx，最大 64 MiB。按全部 sheet 建立快照，成功后原子切换版本；同一文件与口径重复上传不重复累计；在线文档不回写。price_basis=row_total 每行合计，unit 单件价乘有效数量，unknown 不汇总金额。';
+            $result['notes'][] = 'multipart/form-data：file 为 XLSX，最大 256 MiB；source_type=procurement/suppliers。默认 mode=current_month，仅替换北京时间当前月份 Sheet 的完整快照，其他月份不变；缺少月份、空表或解析失败保留旧数据。mode=initialize 仅首次导入全部历史。相同文件和目标月份重复导入不累计。供应商上传更新映射并重新分类有效历史，原始值和成交金额不变。';
         }
     }
     if ($controller === 'Auth') {
@@ -266,7 +270,12 @@ function descriptions(): array
         'category_id' => 'Analysis 品类字典主键', 'brand_id' => 'Analysis 品牌字典主键', 'supplier_id' => 'Analysis 供应商主键',
         'customer_type' => 'unknown 未知、first 已知历史首次、returning 复购', 'classification_status' => '商品品类匹配状态',
         'record_type' => 'ordinary 普通订单采购、invoice、after_sale 售后、other_procurement 达人或样品等',
-        'sheet_name' => '来源工作表名称', 'quality' => 'needs_review 缺少品类、金额或订单关联', 'include_cancelled' => '是否包含取消采购，默认 false',
+        'sheet_name' => '来源工作表名称', 'quality' => 'missing 数据缺失，classification 品牌或品类待核查，needs_review 全部核查问题', 'include_cancelled' => '是否包含取消采购，默认 false',
+        'source_period' => '来源月份 YYYY-MM，按 Sheet 确定，与采购日期独立保留',
+        'customer_key' => '客户汇总接口返回的规范化客户名，精确查询此客户',
+        'purchase_method' => 'ws/pl/invoice/after_sale/influencer/accessory/unknown，来自下单形式原文',
+        'price_band' => 'CNY 每行实际成交价格区间，负数单列；3000+ 中的加号需 URL 编码',
+        'scope' => 'eligible 默认只看已采购且价格有效记录；all 保留全部来源行；quality 查询自动包含无效行',
         'grain' => 'Analysis 趋势粒度 day 或 month，默认 month', 'source_type' => 'suppliers 供应商优选表，procurement 采购集成表',
         'price_basis' => 'row_total 每行商品合计、unit 单件价格、unknown 待确认',
         'includeDetails' => '兼容参数；当前 SA report 固定为 false，明细请独立查询',

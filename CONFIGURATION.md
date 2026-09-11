@@ -25,7 +25,7 @@ test -e .env || cp .env.example .env
 chmod 600 .env
 ```
 
-`.env.example` 默认本地开发，生产服务器按下表填写同一个 `.env`：
+`.env.example` 是配置模板，不能直接当作完整生产配置；本地和生产分别按下表核对同一个 `.env`：
 
 | 参数 | 本地开发 | 生产服务器 |
 |---|---|---|

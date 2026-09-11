@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
-/** 从只读 Excel 副本导入可追溯快照；不向金山文档回写任何内容。 */
+/** 上传 Excel 的月度快照采集；仅从采购表及供应商表读取数据。 */
 class AnalysisImportService
 {
     public const SOURCES = [
@@ -16,95 +16,117 @@ class AnalysisImportService
         'procurement' => 'https://www.kdocs.cn/l/cjdRBOAyO9dj',
     ];
 
+    private array $categoryIds = [];
+
+    private array $supplierIds = [];
+
+    private int $unknownBrandId;
+
+    private ?int $mappingImportId = null;
+
     /**
-     * 注入解析、分类、订单关联和存储依赖。
+     * 注入解析器、分类器及数据库仓储。
      *
-     * @param AnalysisDao $analysisDao 批次与记录持久化
-     * @param AnalysisWorkbookReader $reader 安全 XLSX 读取器
-     * @param AnalysisWorkbookParser $parser 跨月份字段解析器
-     * @param AnalysisClassificationService $classificationService 供应商及品类规则匹配器
-     * @param AnalysisOrderLinkService $orderLinkService 普通订单及 Invoice 关联器
-     * @return void 初始化导入流程依赖
+     * @param AnalysisDao $analysisDao 批次和明细持久化
+     * @param AnalysisWorkbookReader $reader 只读取工作簿文字和公式缓存
+     * @param AnalysisWorkbookParser $parser 月表字段解析
+     * @param AnalysisClassificationService $classificationService 品牌品类映射
+     * @return void 初始化服务依赖
      */
     public function __construct(
         private AnalysisDao $analysisDao,
         private AnalysisWorkbookReader $reader,
         private AnalysisWorkbookParser $parser,
         private AnalysisClassificationService $classificationService,
-        private AnalysisOrderLinkService $orderLinkService,
     ) {
     }
 
     /**
-     * 导入完整工作簿快照，成功后一次切换当前版本；重复文件及口径不重复累计。
+     * 首次导入历史，日常仅替换北京时间当前月；全部成功后原子切换。
      *
-     * @param string $path XLSX 本地路径，仅供内部命令或已验证的上传文件调用
-     * @param string $filename 来源显示文件名，不参与路径拼接
+     * @param string $path 已验证的 XLSX 本地路径，不修改原文件
+     * @param string $filename 显示用文件名
      * @param string $sourceType suppliers 或 procurement
-     * @param string|null $currency 采购价格币种；null 为待确认，金额汇总不纳入这些行
-     * @param string $priceBasis row_total、unit 或 unknown；单件价缺数量时不计算行金额
-     * @param int|null $userId 操作者主键；命令行执行时可为空
-     * @return array 批次 ID、是否复用、各 sheet 数量及质量汇总
+     * @param string|null $currency 固定 CNY，其他值拒绝
+     * @param string $priceBasis 固定 row_total，直接使用每行实际成交价格
+     * @param int|null $userId 操作者主键；命令行可空
+     * @param string $mode current_month 或 initialize，后者仅用于首次建库
+     * @return array 批次 id、reused、目标月份和质量汇总；失败保留旧数据
      */
-    public function import(string $path, string $filename, string $sourceType, ?string $currency, string $priceBasis, ?int $userId): array
+    public function import(string $path, string $filename, string $sourceType, ?string $currency = 'CNY', string $priceBasis = 'row_total', ?int $userId = null, string $mode = 'current_month'): array
     {
-        if (!isset(self::SOURCES[$sourceType]) || !in_array($priceBasis, ['row_total', 'unit', 'unknown'], true) || ($currency !== null && !preg_match('/^[A-Z]{3}$/', $currency))) {
-            throw ValidationException::withMessages(['source_type' => 'Invalid import settings.']);
+        if (!isset(self::SOURCES[$sourceType]) || $currency !== 'CNY' || $priceBasis !== 'row_total' || !in_array($mode, ['initialize', 'current_month'], true)) {
+            throw ValidationException::withMessages(['file' => '仅支持 CNY 实际成交价格，以及首次导入／当月更新模式。']);
         }
-        if (!is_file($path) || filesize($path) > 64 * 1024 * 1024) {
-            throw ValidationException::withMessages(['file' => 'XLSX file is missing or exceeds 64 MB.']);
+        if (!is_file($path) || filesize($path) > 256 * 1024 * 1024) {
+            throw ValidationException::withMessages(['file' => 'Excel 文件不存在或超过 256 MB，请移除图片后上传。']);
         }
+        $month = now('Asia/Shanghai')->format('Y-m');
+        $mode = $sourceType === 'suppliers' ? 'dictionary' : $mode;
         $hash = hash_file('sha256', $path);
-        $signature = hash('sha256', implode('|', [$sourceType, $hash, $currency ?? '', $priceBasis]));
+        $signature = hash('sha256', implode('|', ['procurement-v2', $sourceType, $hash, $mode, $mode === 'current_month' ? $month : 'all', 'CNY', 'row_total']));
 
-        return DB::transaction(function () use ($path, $filename, $sourceType, $currency, $priceBasis, $userId, $hash, $signature): array {
-            // 两类来源共享锁，避免导入采购时恰好切换供应商规则版本。
+        return DB::transaction(function () use ($path, $filename, $sourceType, $mode, $month, $hash, $signature, $userId): array {
             DB::select('SELECT pg_advisory_xact_lock(?)', [2076091001]);
             $existing = $this->analysisDao->findImport($signature);
-            if ($existing && $existing->is_active) {
-                return ['id' => $existing->id, 'reused' => true, 'summary' => $existing->summary];
+            if ($existing && $existing->is_active && ($sourceType === 'suppliers' || count(array_diff($existing->periods, $existing->active_periods)) === 0)) {
+                return ['id' => $existing->id, 'reused' => true, 'periods' => $existing->periods, 'summary' => $existing->summary];
             }
-            if ($existing) {
-                $this->analysisDao->activate($existing, $existing->summary);
-                $this->reclassify();
-
-                return ['id' => $existing->id, 'reused' => true, 'summary' => $existing->summary];
+            if ($sourceType === 'procurement' && $mode === 'initialize' && $this->analysisDao->hasProcurement()) {
+                throw ValidationException::withMessages(['mode' => '已存在历史采购数据，请使用只更新当月模式。']);
             }
-            $categoryIds = $this->categoryIds();
-            $this->classificationService->load($this->analysisDao->activeRules());
-            if ($sourceType === 'procurement') {
-                $this->orderLinkService->load();
-            }
-            $import = $this->analysisDao->createImport([
-                'source_type' => $sourceType,
-                'source_url' => self::SOURCES[$sourceType],
-                'filename' => mb_substr(basename($filename), 0, 255),
-                'file_hash' => $hash,
-                'signature' => $signature,
-                'currency' => $currency,
-                'price_basis' => $priceBasis,
-                'created_by' => $userId,
-                'summary' => [],
+            $this->prepareDictionaries();
+            $this->loadMappings();
+            $import = $existing ?? $this->analysisDao->createImport([
+                'source_type' => $sourceType, 'source_url' => self::SOURCES[$sourceType],
+                'filename' => mb_substr(basename($filename), 0, 255), 'file_hash' => $hash, 'signature' => $signature,
+                'currency' => 'CNY', 'price_basis' => 'row_total', 'created_by' => $userId,
+                'mode' => $mode, 'summary' => [], 'periods' => [], 'active_periods' => [],
             ]);
-            $summary = ['sheets' => [], 'rows' => 0, 'price_missing_or_invalid' => 0, 'amount_unavailable' => 0, 'category_matched' => 0, 'brand_matched' => 0, 'orders_matched' => 0, 'cancelled' => 0];
-            $dictionaryIds = ['brands' => [], 'suppliers' => []];
-            foreach ($this->reader->sheets($path) as $sheet) {
-                $timestamp = now()->toDateTimeString();
+            if ($existing && $sourceType === 'procurement') {
+                $this->analysisDao->activate($import, $import->summary, [$month]);
+                $this->reclassify();
+                $this->analysisDao->refreshCustomerHistory();
+
+                return ['id' => $import->id, 'reused' => true, 'periods' => [$month], 'summary' => $import->summary];
+            }
+            $summary = ['sheets' => [], 'rows' => 0, 'eligible_rows' => 0, 'amount' => '0.00', 'price_missing_or_invalid' => 0,
+                'missing_date' => 0, 'missing_customer' => 0, 'unclassified_brand' => 0, 'unclassified_category' => 0];
+            $periods = [];
+            $supplierRules = [];
+            $accept = $sourceType === 'procurement' && $mode === 'current_month'
+                ? fn (string $name): bool => $this->parser->period($name) === $month : null;
+            foreach ($this->reader->sheets($path, $accept) as $sheet) {
                 if ($sourceType === 'suppliers') {
-                    $rules = $this->parser->supplierRules($sheet);
-                    $records = $this->ruleRecords($rules, $categoryIds, $dictionaryIds, $import->id, $timestamp);
-                    $this->analysisDao->insertRules($records);
+                    $records = $this->parser->supplierRules($sheet);
+                    array_push($supplierRules, ...$records);
                 } else {
-                    $records = $this->parser->procurementRows($sheet, $currency, $priceBasis);
+                    $period = $this->parser->period($sheet['name']);
+                    if (!$period) {
+                        throw ValidationException::withMessages(['file' => '采购表包含无法识别的月份 Sheet：' . $sheet['name']]);
+                    }
+                    if (in_array($period, $periods, true)) {
+                        throw ValidationException::withMessages(['file' => '同一月份存在多个 Sheet，无法确定替换边界：' . $period]);
+                    }
+                    $records = $this->parser->procurementRows($sheet, 'CNY', 'row_total');
+                    if ($records === []) {
+                        throw ValidationException::withMessages(['file' => '月份 Sheet 没有采购记录，原数据已保留：' . $period]);
+                    }
+                    $periods[] = $period;
+                    $this->ensureSuppliers($records);
+                    $this->loadMappings();
+                    $timestamp = now()->toDateTimeString();
                     foreach ($records as &$record) {
-                        $record = array_merge($record, $this->classificationService->classify($record, $categoryIds), $this->orderLinkService->link($record));
+                        $record = array_merge($record, $this->classificationService->classify($record, $this->categoryIds));
+                        $record += ['import_id' => $import->id, 'mapping_import_id' => $this->mappingImportId,
+                            'mapped_at' => $timestamp, 'created_at' => $timestamp, 'updated_at' => $timestamp];
+                        $summary['eligible_rows'] += $record['is_eligible'] ? 1 : 0;
+                        $summary['amount'] = bcadd($summary['amount'], $record['analysis_amount'] ?? '0', 2);
                         $summary['price_missing_or_invalid'] += $record['price_status'] !== 'valid' ? 1 : 0;
-                        $summary['amount_unavailable'] += $record['analysis_amount'] === null ? 1 : 0;
-                        $summary['category_matched'] += $record['category_id'] !== null ? 1 : 0;
-                        $summary['brand_matched'] += $record['brand_id'] !== null ? 1 : 0;
-                        $summary['orders_matched'] += $record['order_match_status'] === 'matched' ? 1 : 0;
-                        $summary['cancelled'] += $record['is_cancelled'] ? 1 : 0;
-                        $record += ['import_id' => $import->id, 'created_at' => $timestamp, 'updated_at' => $timestamp];
+                        $summary['missing_date'] += $record['analysis_date'] === null ? 1 : 0;
+                        $summary['missing_customer'] += $record['customer_key'] === null ? 1 : 0;
+                        $summary['unclassified_brand'] += $record['brand_match_status'] !== 'matched' ? 1 : 0;
+                        $summary['unclassified_category'] += $record['classification_status'] !== 'matched' ? 1 : 0;
                         $record = $this->serialize($record);
                     }
                     unset($record);
@@ -114,106 +136,150 @@ class AnalysisImportService
                 $summary['rows'] += count($records);
             }
             if ($summary['rows'] === 0) {
-                throw ValidationException::withMessages(['file' => 'No supported data rows found; current data was kept.']);
+                throw ValidationException::withMessages(['file' => $mode === 'current_month' ? "文件缺少 {$month} 的有效采购 Sheet，原数据已保留。" : '没有可导入的数据，原数据已保留。']);
             }
-            if (!Storage::disk('local')->putFileAs('analysis/imports', new File($path), $hash . '.xlsx')) {
-                throw ValidationException::withMessages(['file' => 'Unable to save the private source copy; current data was kept.']);
-            }
-            $this->analysisDao->activate($import, $summary);
             if ($sourceType === 'suppliers') {
+                $this->saveSupplierMappings($supplierRules, $import->id);
+            }
+            $destination = 'analysis/imports/' . $hash . '.xlsx';
+            if (!Storage::disk('local')->exists($destination) && !Storage::disk('local')->putFileAs('analysis/imports', new File($path), $hash . '.xlsx')) {
+                throw ValidationException::withMessages(['file' => '无法保存私有来源副本，原数据已保留。']);
+            }
+            sort($periods);
+            $this->analysisDao->activate($import, $summary, $periods);
+            if ($sourceType === 'suppliers') {
+                $this->mappingImportId = $import->id;
+                $this->loadMappings();
                 $this->reclassify();
+            } else {
+                $this->analysisDao->refreshCustomerHistory();
             }
 
-            return ['id' => $import->id, 'reused' => false, 'summary' => $summary];
+            return ['id' => $import->id, 'reused' => $existing !== null, 'periods' => $periods, 'summary' => $summary];
         });
     }
 
     /**
-     * 建立品类字典并返回主键索引。
+     * 初始化固定品类和唯一待分类品牌。
      *
-     * @return array<string, int> 品类 code 到 ID 的映射
+     * @return void 写入并缓存字典主键
      */
-    private function categoryIds(): array
+    private function prepareDictionaries(): void
     {
-        $ids = [];
-        foreach (AnalysisWorkbookParser::CATEGORIES as $code => $names) {
-            $ids[$code] = $this->analysisDao->category($code, $names);
+        foreach (AnalysisWorkbookParser::CATEGORIES as $code => [$zh, $en]) {
+            $this->categoryIds[$code] = $this->analysisDao->dictionary('category', $code, ['name_zh' => $zh, 'name_en' => $en]);
         }
-
-        return $ids;
+        $this->unknownBrandId = $this->analysisDao->dictionary('brand', hash('sha256', '__unclassified__'), [
+            'name_zh' => '待分类', 'name_en' => 'Unclassified', 'is_active' => true,
+        ]);
     }
 
     /**
-     * 将规则中的品牌、供应商名称转换成字典主键，缓存避免逐条重复查询。
+     * 保存品牌定义和供应商映射，四张业务表即可完成分类。
      *
-     * @param array<int, array> $rules 来源规则
-     * @param array<string, int> $categoryIds 品类主键索引
-     * @param array $dictionaryIds 原地更新的品牌、供应商字典缓存
-     * @param int $importId 当前导入批次主键
-     * @param string $timestamp 当前批次写入时间
-     * @return array<int, array> 可批量插入的规则记录
+     * @param array $rules 供应商工作簿所有 Sheet 的规则
+     * @param int $importId 字典来源批次
+     * @return void 品牌规则写入品牌字典，供应关系写入供应商字典 JSON
      */
-    private function ruleRecords(array $rules, array $categoryIds, array &$dictionaryIds, int $importId, string $timestamp): array
+    private function saveSupplierMappings(array $rules, int $importId): void
     {
-        $records = [];
-        foreach ($rules as $rule) {
-            $brandId = null;
+        $this->analysisDao->clearMappings();
+        $this->prepareDictionaries();
+        $brands = [];
+        $suppliers = [];
+        foreach ($rules as &$rule) {
+            $rule['brand_id'] = null;
             if ($rule['brand_name']) {
-                $brandKey = hash('sha256', AnalysisWorkbookParser::key($rule['brand_name']));
-                $brandId = $dictionaryIds['brands'][$brandKey] ??= $this->analysisDao->brand($brandKey, $rule['brand_zh'], $rule['brand_name']);
+                $identity = hash('sha256', AnalysisWorkbookParser::key($rule['brand_name']));
+                if (!isset($brands[$identity])) {
+                    $brands[$identity] = ['id' => $this->analysisDao->dictionary('brand', $identity, [
+                        'name_zh' => $rule['brand_zh'] ?: $rule['brand_name'], 'name_en' => $rule['brand_name'], 'is_active' => true,
+                    ]), 'aliases' => [], 'entries' => []];
+                }
+                $rule['brand_id'] = $brands[$identity]['id'];
+                $brands[$identity]['aliases'][] = $rule['brand_code'];
             }
-            $supplierId = null;
             if ($rule['supplier_name']) {
-                $supplierKey = hash('sha256', AnalysisWorkbookParser::key($rule['supplier_name']));
-                $supplierId = $dictionaryIds['suppliers'][$supplierKey] ??= $this->analysisDao->supplier($supplierKey, $rule['supplier_name']);
+                $key = AnalysisWorkbookParser::key($rule['supplier_name']);
+                $suppliers[$key]['name'] = $rule['supplier_name'];
+                $suppliers[$key]['rules'][] = $rule;
+            } elseif ($rule['brand_id']) {
+                $brands[$identity]['entries'][] = $rule;
+            } elseif ($rule['brand_pending']) {
+                $brands['__pending__']['entries'][] = $rule;
             }
-            $records[] = [
-                'import_id' => $importId,
-                'category_id' => $categoryIds[$rule['category_code']],
-                'brand_id' => $brandId,
-                'supplier_id' => $supplierId,
-                'brand_code' => $rule['brand_code'],
-                'sheet_name' => $rule['sheet_name'],
-                'row_number' => $rule['row_number'],
-                'preference' => $rule['preference'],
-                'raw' => json_encode($rule['raw'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-                'created_at' => $timestamp,
-                'updated_at' => $timestamp,
-            ];
         }
-
-        return $records;
+        unset($rule);
+        foreach ($brands as $identity => $brand) {
+            if ($identity === '__pending__') {
+                $this->analysisDao->dictionary('brand', hash('sha256', '__unclassified__'), ['source_entries' => $brand['entries'], 'is_active' => true]);
+            } else {
+                $this->analysisDao->dictionary('brand', $identity, [
+                    'aliases' => array_values(array_unique(array_filter($brand['aliases']))), 'source_entries' => $brand['entries'],
+                ]);
+            }
+        }
+        foreach ($suppliers as $key => $supplier) {
+            $this->analysisDao->dictionary('supplier', hash('sha256', $key), [
+                'name' => $supplier['name'], 'mapping_rules' => $supplier['rules'], 'rules_import_id' => $importId,
+            ]);
+        }
     }
 
     /**
-     * 供应商版本变化后分批重算当前采购行的分类，不改变原始记录和价格。
+     * 为采购表中出现的新供应商创建字典，未知供应关系不作推测。
      *
-     * @return void 无返回值；调用方持有导入事务锁
+     * @param array $records 当前 Sheet 的采购记录
+     * @return void 更新供应商主键缓存
+     */
+    private function ensureSuppliers(array $records): void
+    {
+        foreach ($records as $record) {
+            $name = $record['supplier_raw'];
+            $key = AnalysisWorkbookParser::key($name);
+            if ($key !== '' && !isset($this->supplierIds[$key])) {
+                $this->supplierIds[$key] = $this->analysisDao->dictionary('supplier', hash('sha256', $key), ['name' => $name]);
+            }
+        }
+    }
+
+    /**
+     * 装载当前字典并建立内存匹配索引。
+     *
+     * @return void 更新当前规则、供应商缓存和字典批次
+     */
+    private function loadMappings(): void
+    {
+        $mapping = $this->analysisDao->mappings();
+        $this->supplierIds = $mapping['suppliers'];
+        $this->mappingImportId = $this->analysisDao->supplierImportId();
+        $this->classificationService->load($mapping['rules'], $mapping['brands'], $mapping['suppliers'], $this->unknownBrandId);
+    }
+
+    /**
+     * 供应商表更新后重算有效采购历史的品牌和品类，保留原始值及金额。
+     *
+     * @return void 分块更新派生字段，调用方持有事务锁
      */
     private function reclassify(): void
     {
-        $categoryIds = $this->categoryIds();
-        $this->classificationService->load($this->analysisDao->activeRules());
-        $activeId = $this->analysisDao->activeImports()->firstWhere('source_type', 'procurement')?->id;
-        if (!$activeId) {
-            return;
-        }
-        $this->analysisDao->chunkRows($activeId, function ($rows) use ($categoryIds): void {
+        $this->analysisDao->chunkCurrentRows(function ($rows): void {
             $updates = [];
             foreach ($rows as $row) {
-                $attributes = $row->getAttributes();
-                $classification = $this->classificationService->classify($attributes, $categoryIds);
-                $updates[] = $this->serialize(array_merge($attributes, $classification, ['updated_at' => now()->toDateTimeString()]));
+                $record = $row->getAttributes();
+                $updates[] = $this->serialize(array_merge($record, $this->classificationService->classify($record, $this->categoryIds), [
+                    'mapping_import_id' => $this->mappingImportId, 'mapped_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+                ]));
             }
             $this->analysisDao->updateClassifications($updates);
         });
     }
 
     /**
-     * 将结构字段编码为数据库 JSON，避免批量写入时丢失 Eloquent 类型转换。
+     * 将批量写入中的结构字段编码为 JSON。
      *
-     * @param array $record 待写入行；已有 JSON 字符串保持不变
-     * @return array JSON 字段已编码的记录
+     * @param array $record 原始和派生记录
+     * @return array 可供 insert/upsert 的数据库字段
      */
     private function serialize(array $record): array
     {

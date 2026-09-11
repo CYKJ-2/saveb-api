@@ -11,5 +11,5 @@ class AnalysisImport extends Model
 
     protected $guarded = [];
 
-    protected $casts = ['summary' => 'array', 'is_active' => 'boolean'];
+    protected $casts = ['summary' => 'array', 'is_active' => 'boolean', 'periods' => 'array', 'active_periods' => 'array'];
 }

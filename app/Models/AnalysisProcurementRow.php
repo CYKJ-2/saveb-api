@@ -19,5 +19,8 @@ class AnalysisProcurementRow extends Model
         'analysis_amount' => 'decimal:2',
         'quantity' => 'decimal:4',
         'is_cancelled' => 'boolean',
+        'is_current' => 'boolean',
+        'is_eligible' => 'boolean',
+        'supplier_quote' => 'decimal:2',
     ];
 }
