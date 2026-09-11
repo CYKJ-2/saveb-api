@@ -46,6 +46,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Verify Compose is tracked as a regular file
+        shell: bash
+        run: |
+          # Windows core.symlinks=false 会掩盖 Git 中残留的符号链接类型。
+          mode="$(git ls-files --stage -- docker-compose.yml | cut -d ' ' -f 1)"
+          if [[ "$mode" != 100644 || -L docker-compose.yml || ! -f docker-compose.yml ]]; then
+            echo '::error::docker-compose.yml must be a regular Git file (mode 100644), not a symlink.'
+            exit 1
+          fi
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
