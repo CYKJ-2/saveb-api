@@ -180,7 +180,7 @@ function schemas(): array
     $s['PersonalPerformanceEmployee'] = shape('code:s:客服编码;name:s:用户显示名称，没有名称映射时返回编码');
     $s['PersonalPerformanceOptions'] = shape('employees:[]PersonalPerformanceEmployee:在职及历史客服;defaultStaffCode:s:优先当前用户绑定的客服，否则第一个员工，无员工时为空');
     $s['PersonalPerformanceRange'] = shape('staffCode:s:规范化客服编码;startDate:date:起始日期含当天;endDate:date:结束日期含当天;scope:s:all/order/invoice');
-    $s['PersonalPerformanceSummary'] = shape('sales:n:按分摊计算的正销售 USD;refunds:n:退款 USD 正数;netSales:n:销售减退款 USD;orders:i:有美元金额的成交参与单数;refundOrders:i:有美元金额的退款参与单数;totalOrders:i:成交加退款单数;missingRates:i:缺少美元换算汇率的订单数;refundRateOrders:n:退款单数占总单数百分比;refundRateAmount:n:退款额占正销售额百分比;commissionUsd:n:普通及 Invoice 分别计算的美元佣金之和');
+    $s['PersonalPerformanceSummary'] = shape('sales:n:所有个人分摊记录的正销售合计 USD;refunds:n:个人退款合计 USD 正数;netSales:n:销售减退款 USD;orders:i:按日期客户订单总金额去重的成交单数;refundOrders:i:按相同规则独立去重的退款单数;totalOrders:i:旧版总单数，等于成交单数 orders，不含退款;missingRates:i:缺少美元換算汇率的订单数;refundRateOrders:n:退款单数除以成交加退款单数的百分比，无成交单时为零;refundRateAmount:n:退款额除以销售加退款额的百分比，无正销售额时为零;commissionUsd:n:所选范围所有渠道的合计净销售额统一计算阶梯佣金 USD');
     $s['PersonalPerformanceDay'] = shape('date:date:北京时间日期;sales:n:个人销售 USD;refunds:n:个人退款 USD 正数;netSales:n:个人净销售 USD');
     $s['PersonalPerformanceOrder'] = shape('id:s:来源类型及数据库 ID;kind:s:order 或 invoice;date:date:业务日期;orderId:s:展示订单号;customer:?s:客户姓名;website:?s:来源网站;classification:s:销售分类;status:s:标准化订单状态;account:s:收款账户;refund:b:是否退款;orderAmount:?n:订单总金额 USD，退款为负数，缺汇率为 null;sharePercent:n:客服分摊百分比;myAmount:?n:个人分摊金额 USD;phone:s:客户电话，缺失为空;channel:s:销售渠道;paymentMethod:s:支付方式，缺失为空');
     $s['PersonalPerformancePage'] = page('PersonalPerformanceOrder');

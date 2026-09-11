@@ -2,6 +2,10 @@
 
 本地验证代码后 push main，GitHub 云端测试并构建 Linux amd64 镜像，将镜像推送 GHCR；192.168.11.84 上的 runner 主动领取发布任务，只拉镜像、备份、增量迁移、更新容器及验证健康。服务器不构建应用镜像，不需要云端 SSH 到内网，也不使用服务器 SSH 私钥。
 
+## 首次初始化：不依赖本地数据
+
+全新环境填写数据库等 `.env` 配置后，通过 `server:database-init --force` 安装全部表、增量迁移和源码内置的基础角色/权限，并创建管理员。无需导出本地 RBAC 或上传快照。完整 clone、Docker 与服务器命令见 [RBAC-BOOTSTRAP.md](RBAC-BOOTSTRAP.md)。API/Admin 可先运行，旧业务和附件另行迁入，Collector 按数据准备进度启用。
+
 ## 已实现的流程
 
 | 环节 | 实现 |
@@ -33,7 +37,7 @@
 2. 确认 `.github/workflows/release.yml` 已在 main；GitHub Actions 的 test/build 成功，deploy 暂时显示 Skipped 是正常情况。
 3. 服务器三个目录分别 `git pull --ff-only origin main`。按 SERVER-DEPLOY.md 填写 .env、准备基础设施和数据；拉过代码不等于完成此步骤。
 4. 在新 CYKJ-2 仓库注册三个 runner，确认均为 Idle；旧仓库的注册信息不能继续服务新仓库。
-5. 数据和配置核对通过后，按第 4 节逐个启用 API → Collector → Admin，首次通过 Run workflow 触发。之后 push main 自动发布。
+5. 基础结构、管理员和配置核对通过后，按第 4 节先启用 API/Admin，Collector 在数据及采集配置准备完成后启用，首次通过 Run workflow 触发。之后 push main 自动发布。
 
 服务器 www 目录重新建过，也不能据此认定数据库是空的：Docker 数据卷仍可能保留。首次启动 infra 前先执行只读 `docker volume ls --filter name=saveb-production`，核实是否存在本次新系统的旧卷及其密码、数据来源，不删除这些卷来绕过配置问题。
 
@@ -68,7 +72,7 @@ docker compose -f docker-compose.infra.yml config --quiet
 docker compose -f docker-compose.infra.yml up -d --wait
 ```
 
-这仅准备数据库/Redis/网络，不等于完成业务数据导入。首次上线必须先明确现有 RBAC 来源、准备兼容结构及迁移记录，迁入旧业务数据和真实附件。自动脚本只负责后续增量迁移，不初始化空业务库或重置管理员。迁移演练和正式切换写入窗口单独安排。
+这仅准备数据库/Redis/网络，不等于完成业务数据导入。首次上线用 server:database-init --force 完成全部结构和基础 RBAC 初始化后即可启动 API/Admin。自动发布脚本负责后续增量迁移，不重复初始化或重置管理员。旧业务数据和真实附件另行迁移，迁移期间暂停相关写入和 Collector。
 
 ## 3. 在内网注册 runner
 
@@ -107,7 +111,7 @@ nohup ./run.sh > runner.log 2>&1 < /dev/null &
 
 先 push，让云端测试和构建通过。部署 job 此时跳过，可先确认 GHCR package 及权限。工作流代码必须已经提交到 main；本地文件不能自行触发 GitHub。
 
-完成数据库/附件准备、生产配置核对、确认自动采集可以开始后，在服务器三个项目内分别创建就绪标记：
+API/Admin 完成基础初始化和配置核对即可创建各自就绪标记。Collector 的标记必须等业务导入、规则及来源配置完成后再创建；以下三条按各自就绪时机分别执行：
 
 ```bash
 touch /home/admin_chen/www/saveb-api/.deploy-ready
@@ -115,9 +119,9 @@ touch /home/admin_chen/www/saveb-collector/.deploy-ready
 touch /home/admin_chen/www/saveb-admin/.deploy-ready
 ```
 
-标记只表示人工确认首次数据准备完成；不要提前创建来绕过准备步骤。发布脚本还会检查新库 users 有数据，但它无法替代完整的 RBAC、订单和附件核对。
+标记表示相应项目准备就绪。API/Admin 不要求先导入旧业务数据；Collector 仍需独立核对数据和来源配置。发布脚本检查新库 users 已存在，但不能替代业务验收。
 
-随后按 API → Collector → Admin 顺序，将对应仓库 DEPLOY_ENABLED 设为 true，在 Actions → Build and deploy production → Run workflow 选择 main，rollback_sha 留空。每个项目成功且业务验证通过后再启用下一个。初次没有历史健康版本可回滚，失败时保留 pending 并提示人工检查；不要直接删除状态文件强行继续。
+随后先按 API → Admin 顺序发布，Collector 准备完成后再启用。将对应仓库 DEPLOY_ENABLED 设为 true，在 Actions → Build and deploy production → Run workflow 选择 main，rollback_sha 留空。每个项目成功且业务验证通过后再启用下一个。初次没有历史健康版本可回滚，失败时保留 pending 并提示人工检查；不要直接删除状态文件强行继续。
 
 ## 5. 日常发布与回滚
 

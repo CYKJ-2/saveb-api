@@ -2,7 +2,7 @@
 
 **日常只维护根目录 `.env` 和 `nginx.conf`。** 本地与生产共用这两个配置入口；旧 `build/` 和环境切换符号链接已移除。首次配置、生产参数及配置生效方式见 [配置说明](CONFIGURATION.md)，服务器自动发布见 [AUTODEPLOY.md](AUTODEPLOY.md)。
 
-Docker Desktop 重装后的环境已于 2026-09-07 恢复。后端为 PHP 8.3 / Laravel，数据库为 PostgreSQL 16，缓存为 Redis 7，由 Nginx 提供 HTTP 服务。
+后端为 PHP 8.3 / Laravel，数据库为 PostgreSQL 16，缓存为 Redis 7，由 Nginx 提供 HTTP 服务。全新 clone 请先阅读 [首次安装](RBAC-BOOTSTRAP.md)，无需开发者的本地数据库。
 
 ## 日常启动
 
@@ -23,7 +23,7 @@ Docker Desktop 重装后的环境已于 2026-09-07 恢复。后端为 PHP 8.3 / 
 | Redis | 127.0.0.1:6380 |
 | 本次恢复的 saveb-admin | http://127.0.0.1:3001/dashboard/overview |
 
-数据库名及用户沿用本地 `.env` 的 `test`，密码以该文件为准。数据库、Redis、附件分别保存在项目命名卷中；当前本地配置不依赖旧 saveb-erp 网络或卷。
+数据库名、用户和密码由安装者在自己的 `.env` 配置。数据库、Redis、附件分别保存在项目命名卷中，不依赖旧项目网络、卷或开发者已有数据。
 
 ## 接口说明文档
 
@@ -40,7 +40,7 @@ docker exec saveb-api-app php scripts/check-api-docs.php
 
 ## 全新空库初始化
 
-仅首次新建环境使用：
+首次新建环境无需配置管理员密码，默认账号密码为 `super_admin` / `123456`。全新 clone 的开发机先按 [完整安装步骤](RBAC-BOOTSTRAP.md) 安装 Composer 依赖和生成 APP_KEY，再初始化。现有本地启动脚本仍可使用：
 
 ```powershell
 .\scripts\start-local.ps1 -InitializeDatabase
@@ -52,7 +52,7 @@ docker exec saveb-api-app php scripts/check-api-docs.php
 docker exec saveb-api-app php artisan local:database-init
 ```
 
-命令仅允许 `APP_ENV=local`、PostgreSQL、当前 schema 没有任何表的情况。已有表时拒绝初始化，不自动清库。初始化流程：
+`local:database-init` 是仅允许 APP_ENV=local 的兼容入口，内部调用通用 `server:database-init --force`。通用命令支持本地和服务器，仅允许空 PostgreSQL schema；已有表时拒绝初始化，不自动清库。初始化流程：
 
 1. 导入 `database/schema/newsql-baseline.sql` 中来自 `newsql.md` 的 45 张表。
 2. 标记已由基线覆盖的 5 个历史结构迁移，避免重跑旧版删表重建逻辑。
@@ -73,19 +73,19 @@ docker exec saveb-api-app php artisan local:database-init
 
 ## 权限和登录
 
-`database/seeders/RbacSeeder.php` 是当前权限目录，共 15 个菜单、67 个操作权限，全部提供英文 `name` 和中文 `name_zh`。
+`database/seeders/RbacSeeder.php` 是当前权限目录，共 18 个菜单、81 个操作权限，全部提供英文 `name` 和中文 `name_zh`。
 
-- 首页：概览、订单管理，各统计模块分别授权。
-- 业务：Invoice、SA 销售、采购、仓库、达人、PayPal、工作巡查。
-- 系统：用户、角色、权限管理，包含用户角色授权和角色权限分配。
+- 首页：概览，各统计模块分别授权；订单管理在业务管理下。
+- 业务：订单管理、Invoice、SA 销售、采购、仓库、达人、PayPal、工作巡查、Analysis。
+- 系统：用户、角色、权限、采集管理；另有验货系统外链。
 
-本地初始账号：`super_admin` / `123456`，设置了首次改密标记。可以通过 `RBAC_SEED_ADMIN_PASSWORD` 指定首次创建密码；非本地环境必须显式设置。账号已存在时，种子不修改其密码、状态或角色。
+初始账号为 `super_admin`，默认密码为 `123456`，无需在 `.env` 中配置管理员密码。首次登录要求改密；账号已存在时，种子不修改其密码、状态或角色。
 
 ```powershell
 docker exec saveb-api-app php artisan db:seed --class=RbacSeeder
 ```
 
-重跑按权限 code 更新双语名称、归属和组件，保留 ID、启用状态及普通角色授权。超级管理员补齐所有有效权限；viewer 仅在新建时获得首页只读权限。普通 admin 角色需要在页面中按需授权。旧 `/orders/list` 菜单停用，其订单操作权限迁到首页订单管理。
+重跑按权限 code 更新双语名称、归属和组件，保留 ID、启用状态及普通角色授权。超级管理员补齐所有有效权限；viewer 仅在新建时获得首页只读权限。普通 admin 角色需要在页面中按需授权。旧 `/orders/list` 菜单停用，其订单操作权限迁到业务管理下的订单管理。
 
 ## 镜像构建与更新
 
@@ -144,3 +144,7 @@ docker exec saveb-api-app php vendor/bin/pint --config=pint.json --test app/Cont
 上传源码时保留根目录 `nginx.conf`、`.env.example`、`docker-compose.yml`、`docker-compose.server.yml`、`docker-compose.infra.yml`、`Dockerfile`、`docker/`、`automation/`、`.github/workflows/release.yml`、迁移、测试、文档及 `composer.lock`。真实 `.env`、`.config-backup/`、`vendor/`、`.erp-sync/`、运行日志和业务附件由 Git/Docker 忽略。唯一环境模板是根目录 `.env.example`；已有 `.env` 不要覆盖。
 
 `scripts/test_auth.php` 和 `scripts/test_access_log.php` 是手动诊断工具，运行时须通过进程环境提供 `SAVEB_TEST_USERNAME`、`SAVEB_TEST_PASSWORD`；源码不内置登录凭据。
+
+## 全新开发机与服务器安装
+
+任何人 git clone 后，只需配置自己的 `.env`，创建 Docker 容器，再执行 `php artisan server:database-init --force`，即可创建全部结构、3 个基础角色、99 项菜单/操作权限及初始管理员。基础数据在 RbacSeeder 源码中；无需本地数据库快照、开发者账号或私有 JSON。首次管理员账号密码为 `super_admin` / `123456`，登录后修改密码。完整步骤见 [RBAC-BOOTSTRAP.md](RBAC-BOOTSTRAP.md)。

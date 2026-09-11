@@ -41,10 +41,10 @@ class WorkbenchTest extends TestCase
         $report = $this->getJson('/api/workbench/sa-sales/personal/report?staffCode=aa&startDate=2026-08-01&endDate=2026-08-31')
             ->assertOk()->assertJsonPath('data.range.staffCode', 'AA')
             ->assertJsonPath('data.summary.sales', 125)->assertJsonPath('data.summary.refunds', 50)
-            ->assertJsonPath('data.summary.netSales', 75)->assertJsonPath('data.summary.totalOrders', 4)
+            ->assertJsonPath('data.summary.netSales', 75)->assertJsonPath('data.summary.totalOrders', 2)
             ->assertJsonPath('data.summary.orders', 2)->assertJsonPath('data.summary.refundOrders', 2)
-            ->assertJsonPath('data.summary.refundRateOrders', 50)->assertJsonPath('data.summary.refundRateAmount', 40)
-            ->assertJsonPath('data.summary.commissionUsd', 1.35)
+            ->assertJsonPath('data.summary.refundRateOrders', 50)->assertJsonPath('data.summary.refundRateAmount', 28.57)
+            ->assertJsonPath('data.summary.commissionUsd', 1.13)
             ->assertJsonCount(31, 'data.daily')->assertJsonPath('data.daily.30.date', '2026-08-31')
             ->assertJsonPath('data.daily.30.sales', 0)->assertJsonPath('data.orders.total', 4)->json('data');
         $this->assertEquals(75, array_sum(array_column($report['daily'], 'netSales')));
@@ -68,7 +68,8 @@ class WorkbenchTest extends TestCase
         }
         $url = '/api/workbench/sa-sales/personal/report?staffCode=AA&startDate=2026-08-01&endDate=2026-08-31';
         $first = $this->getJson($url)->assertOk()->assertJsonCount(20, 'data.orders.list')
-            ->assertJsonPath('data.orders.total', 25)->assertJsonPath('data.summary.sales', 250)->json('data');
+            ->assertJsonPath('data.orders.total', 25)->assertJsonPath('data.summary.sales', 250)
+            ->assertJsonPath('data.summary.totalOrders', 1)->json('data');
         $last = $this->getJson($url . '&page=2&includeSummary=0')->assertOk()
             ->assertJsonCount(5, 'data.orders.list')->assertJsonPath('data.summary', null)->assertJsonPath('data.daily', [])->json('data');
         $this->assertCount(25, array_unique(array_merge(array_column($first['orders']['list'], 'id'), array_column($last['orders']['list'], 'id'))));
@@ -91,7 +92,7 @@ class WorkbenchTest extends TestCase
             ->assertOk()->assertJsonCount(31, 'data.daily')->assertJsonPath('data.orders.total', 0);
     }
 
-    public function test_personal_commission_matches_separate_regular_and_invoice_sa_rankings(): void
+    public function test_personal_commission_combines_sources_without_changing_sa_rankings(): void
     {
         $this->order(['amount_usd' => 80000]);
         $invoice = \App\Models\InvoiceOrder::create(['order_number' => 'COMMISSION-I', 'invoice_date' => '2026-08-02', 'order_date' => '2026-08-02', 'invoice_status' => 'Paid', 'amount_usd' => 80000]);
@@ -99,8 +100,9 @@ class WorkbenchTest extends TestCase
         $query = '?startDate=2026-08-01&endDate=2026-08-31';
         $sa = $this->getJson('/api/workbench/sa-sales/report' . $query)->assertOk()->json('data');
         $personal = $this->getJson('/api/workbench/sa-sales/personal/report' . $query . '&staffCode=AA')
-            ->assertOk()->assertJsonPath('data.summary.commissionUsd', 3000)->json('data.summary');
-        $this->assertEquals($sa['employees'][0]['commission'] + $sa['invoiceSales']['employees'][0]['commission'], $personal['commissionUsd']);
+            ->assertOk()->assertJsonPath('data.summary.commissionUsd', 3900)->json('data.summary');
+        $this->assertEquals(160000, $personal['netSales']);
+        $this->assertEquals(3000, $sa['employees'][0]['commission'] + $sa['invoiceSales']['employees'][0]['commission']);
         $this->getJson('/api/workbench/sa-sales/personal/report' . $query . '&staffCode=AA&scope=order')
             ->assertOk()->assertJsonPath('data.summary.commissionUsd', 1500)->assertJsonPath('data.orders.total', 1);
     }

@@ -45,7 +45,7 @@ chmod 600 .env
 
 API 的 `SAVEB_COLLECTOR_TOKEN` 必须与 Collector 的 `SAVEB_API_TOKEN` 一致。API 与 Collector 连接同一业务库。
 
-`APP_KEY` 是应用密钥，不是数据库密码。已有数据时保留原值；全新空库首次生成后长期保存，启动和发布脚本不会替你重置它。`RBAC_SEED_ADMIN_PASSWORD` 仅用于首次创建生产管理员，不会覆盖已有账号密码。
+`APP_KEY` 是应用密钥，不是数据库密码。已有数据时保留原值；全新空库首次生成后长期保存，启动和发布脚本不会替你重置它。管理员默认账号密码为 `super_admin` / `123456`，无需环境变量；只有首次创建账号时使用，重跑 Seeder 不会覆盖已有账号密码。
 
 `nginx.conf` 是容器内的 `server { ... }` 配置，不是宿主机 `/etc/nginx/nginx.conf`。内部 `listen 8080`、`fastcgi_pass app:9000` 通常不改；宿主机端口通过 `.env` 的 `API_PORT` 设置。默认仍绑定 127.0.0.1；设置 APP_URL 或 server_name 不会自动开放内网/公网端口，也不会生成 TLS 证书。Admin 的网页入口属于 saveb-admin。
 
@@ -78,7 +78,7 @@ docker compose exec nginx nginx -s reload
 
 旧 deploy/ 不恢复；当前 Actions 使用内置 GITHUB_TOKEN 访问 GHCR，需注册内网 runner 并设置仓库变量 DEPLOY_ENABLED。发布支持恢复上一健康镜像，但不自动回滚数据库。docker/entrypoint.sh、docker/start-local.sh、docker/health.php 和 docker/business-uploads.ini 是容器运行所需文件，不属于发布工具。
 
-nginx.conf 仍从服务器根目录只读挂载，.env 独立保存在每台机器上。数据库/附件导入、生产空库初始化、管理员和备份是首次部署准备，不能用修改两个配置文件代替。local:database-init 仍只允许本地空库。
+nginx.conf 仍从服务器根目录只读挂载，.env 独立保存在每台机器上。首次填好 .env 后执行通用 server:database-init --force，会安装全部结构和基础 RBAC；不要求本地快照，API/Admin 可先登录运行。旧业务及附件可随后迁入。local:database-init 保留为本地兼容入口。
 
 ## 旧配置迁移记录
 
@@ -87,3 +87,7 @@ nginx.conf 仍从服务器根目录只读挂载，.env 独立保存在每台机�
 其他机器若还使用指向 build/env 的旧 .env 链接，先保存链接目标内容为普通 .env 再更新源码。保留 APP_KEY、密码和附件，不能直接丢弃这些配置。
 
 当前本地 API 启动文件引用 docker/start-local.sh；仅源码路径调整，不改变现有数据库、Redis、附件卷名称。旧业务迁移辅助 docker-compose.modules.yml 保留，不用于新生产部署。
+
+## Navicat 连接服务器数据库
+
+在服务器 .env 设置 `POSTGRES_BIND_IP=192.168.11.84`、`POSTGRES_HOST_PORT=5433`，重新创建 infra 的 postgres 服务即可通过内网访问。API/Collector 内部仍使用 `saveb-api-postgres:5432`。连接信息与生效命令见 [SERVER-DEPLOY.md](SERVER-DEPLOY.md#本地-navicat-连接服务器-postgresql)。

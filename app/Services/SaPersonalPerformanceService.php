@@ -7,7 +7,7 @@ use App\Dao\OrderManagementDao;
 use App\Dao\SaPersonalPerformanceDao;
 use Carbon\CarbonImmutable;
 
-/** 复用订单的覆盖、分摊、汇率及 Invoice 去重规则，统计指定客服的实际分摊业绩。 */
+/** 统一订单转换为个人分摊记录后，按旧 html 的 renderPersonalDetail 口径统计美元业绩。 */
 class SaPersonalPerformanceService
 {
     /**
@@ -81,7 +81,7 @@ class SaPersonalPerformanceService
                 'kind' => $kind, 'date' => $row['date'], 'orderId' => $row['orderId'],
                 'customer' => $row['customerFullName'], 'website' => $row['clientSite'],
                 'classification' => $row['classification'], 'status' => $row['paymentStatus'],
-                'account' => $row['recipientPaypal'] ?? '', 'refund' => $refund,
+                'account' => $row['recipientPaypal'] ?? '', 'refund' => $amount === null ? $refund : $amount < 0,
                 'orderAmount' => $amount, 'sharePercent' => $allocation['shareRatio'] * 100,
                 'myAmount' => $amount === null ? null : $amount * $allocation['shareRatio'],
             ];
@@ -109,11 +109,11 @@ class SaPersonalPerformanceService
     }
 
     /**
-     * 累计分摊金额并补齐整个查询区间；普通与 Invoice 的佣金分别按现有 SA 阶梯计算后相加。
+     * 沿用旧个人详情：金额累加全部分摊记录，单数独立去重，合计净销售额统一计算阶梯佣金。
      *
      * @param array $rows 当前客服参与的已完成或退款订单，金额尚未逐行四舍五入
      * @param array $filters 日期闭区间 startDate/endDate
-     * @return array summary 所有金额、比例保留两位小数；daily 每个日历日一行；缺失美元汇率的记录不计入财务指标
+     * @return array summary 中 totalOrders/orders 均为去重成交单数，refundOrders 为去重退款单数；daily 补齐日历日，金额、百分比保留两位小数
      */
     private function summarize(array $rows, array $filters): array
     {
@@ -123,25 +123,38 @@ class SaPersonalPerformanceService
             $daily[$date] = ['date' => $date, 'sales' => 0.0, 'refunds' => 0.0, 'netSales' => 0.0];
         }
         $summary = ['sales' => 0.0, 'refunds' => 0.0, 'netSales' => 0.0, 'orders' => 0, 'refundOrders' => 0, 'missingRates' => 0];
-        $netByKind = ['order' => 0.0, 'invoice' => 0.0];
+        $saleKeys = [];
+        $refundKeys = [];
         foreach ($rows as $row) {
             if ($row['myAmount'] === null) {
                 $summary['missingRates']++;
                 continue;
             }
             $amount = $row['myAmount'];
-            $field = $row['refund'] ? 'refunds' : 'sales';
+            $refund = $amount < 0;
+            $field = $refund ? 'refunds' : 'sales';
             $summary[$field] += abs($amount);
-            $summary[$row['refund'] ? 'refundOrders' : 'orders']++;
             $summary['netSales'] += $amount;
-            $netByKind[$row['kind']] += $amount;
+            // 旧版只对单数去重；金额和明细仍保留全部记录，不能在这里对销售金额去重。
+            $key = $this->orderCountKey($row);
+            if ($refund) {
+                $refundKeys[$key] = true;
+            } else {
+                $saleKeys[$key] = true;
+            }
             $daily[$row['date']][$field] += abs($amount);
             $daily[$row['date']]['netSales'] += $amount;
         }
-        $summary['totalOrders'] = $summary['orders'] + $summary['refundOrders'];
-        $summary['refundRateOrders'] = $summary['totalOrders'] ? $summary['refundOrders'] / $summary['totalOrders'] * 100 : 0.0;
-        $summary['refundRateAmount'] = $summary['sales'] > 0 ? $summary['refunds'] / $summary['sales'] * 100 : 0.0;
-        $summary['commissionUsd'] = SaSalesService::commission($netByKind['order']) + SaSalesService::commission($netByKind['invoice']);
+        $summary['orders'] = count($saleKeys);
+        $summary['refundOrders'] = count($refundKeys);
+        // 旧页面“总单数”绑定 orderCount，仅含非负销售记录，不包含退款单数。
+        $summary['totalOrders'] = $summary['orders'];
+        $summary['refundRateOrders'] = $summary['orders'] > 0
+            ? $summary['refundOrders'] / ($summary['orders'] + $summary['refundOrders']) * 100 : 0.0;
+        $summary['refundRateAmount'] = $summary['sales'] > 0
+            ? $summary['refunds'] / ($summary['sales'] + $summary['refunds']) * 100 : 0.0;
+        // 个人详情合并所有渠道的净额计提，与 SA 两个排行榜分别计提的用途不同。
+        $summary['commissionUsd'] = SaSalesService::commission($summary['netSales']);
         foreach (['sales', 'refunds', 'netSales', 'refundRateOrders', 'refundRateAmount', 'commissionUsd'] as $field) {
             $summary[$field] = round($summary[$field], 2);
         }
@@ -153,6 +166,19 @@ class SaPersonalPerformanceService
         unset($day);
 
         return ['summary' => $summary, 'daily' => array_values($daily)];
+    }
+
+    /**
+     * 按旧版“日期、客户、订单总金额”建立单数去重键；总金额为零时回退到个人金额。
+     *
+     * @param array $row 个人分摊记录，读取 date/customer/orderAmount/myAmount，不使用订单 ID 或渠道
+     * @return string 元组编码的去重键；客户名保持原样，避免改变旧版大小写及空格匹配规则
+     */
+    private function orderCountKey(array $row): string
+    {
+        return json_encode([
+            $row['date'], $row['customer'], $row['orderAmount'] ?: $row['myAmount'],
+        ], JSON_THROW_ON_ERROR);
     }
 
     /**

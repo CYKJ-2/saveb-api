@@ -25,7 +25,6 @@ class LocalDatabaseTest extends TestCase
         DB::statement('CREATE SCHEMA ' . $this->schema);
         DB::statement('SET search_path TO ' . $this->schema);
         $this->app['env'] = 'local';
-        config(['rbac.seed_admin_password' => 'Local-Test-123']);
         $this->assertSame(0, Artisan::call('local:database-init'), Artisan::output());
     }
 

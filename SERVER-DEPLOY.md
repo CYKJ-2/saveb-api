@@ -4,6 +4,10 @@
 
 2026-09-10 已根据用户提供的 df/lvs 确认服务器扩容成功：根文件系统约 588 GB，可用约 507 GB。代码配置已准备不等于服务器已经部署成功；首次镜像构建、数据库迁移及访问入口仍需实际验证。
 
+## 首次初始化：不依赖本地数据
+
+全新环境填写数据库等 `.env` 配置后，通过 `server:database-init --force` 安装全部表、增量迁移和源码内置的基础角色/权限，并创建管理员。无需导出本地 RBAC 或上传快照。完整 clone、Docker 与服务器命令见 [RBAC-BOOTSTRAP.md](RBAC-BOOTSTRAP.md)。API/Admin 可先运行，旧业务和附件另行迁入，Collector 按数据准备进度启用。
+
 ## 文件与配置
 
 | 项目 | 构建文件 | 服务器 Compose | 需要维护的配置 |
@@ -61,7 +65,6 @@ mkdir -p /home/admin_chen/www/saveb-collector/config
 | SAVEB_COLLECTOR_URL / SAVEB_COLLECTOR_ACCOUNT | `http://saveb-collector-api:8080` / `default` |
 | SAVEB_COLLECTOR_TOKEN | 至少 32 字符的随机服务 Token，与 Collector 一致 |
 | BUSINESS_ATTACHMENTS_ROOT | `/data/attachments` |
-| RBAC_SEED_ADMIN_PASSWORD | 保留现有 RBAC 时留空，不执行重置种子 |
 
 Collector 需核对：
 
@@ -87,9 +90,7 @@ Admin 只需 `ADMIN_PORT=13000`、`DEPLOY_NETWORK=saveb-production`。不要给�
 
 当前无需改 nginx.conf：API 保留 `listen 8080`、`fastcgi_pass app:9000`；Admin 保留 `listen 80` 和 `http://saveb-api-web:8080`。它们均为容器内配置，不能把这些端口改成宿主机的 18088/13000。Collector 不需要 nginx.conf。
 
-本次上线的数据库目标是：**保留新系统目标库现有 RBAC 数据，其余业务数据从旧线上系统迁移；Collector 随后写入同一个 API 业务库。** 这不是整库覆盖，也不是重新初始化权限。
-
-2026-09-10 用户已确认：要保留的 RBAC 来源为**本地 saveb-api 数据库**。首次需把这批账号、角色、权限及关联授权带到服务器目标库，并核对对应 APP_KEY；不能把服务器空库新建的默认管理员当作保留 RBAC。其余业务数据仍以旧线上系统为来源。本次部署配置不自动导出、传输或导入这些数据，数据迁移验收前保持 DEPLOY_ENABLED=false，且不创建 .deploy-ready。
+首次上线由源码内置 RbacSeeder 创建基础角色、完整权限和初始管理员，默认密码为 `123456`，首次登录要求修改密码。API/Admin 可先运行空业务库；其他业务数据和附件之后从旧线上系统迁入。新环境不依赖任何本地个人账号、数据库 ID 或私有快照。
 
 - 保留目标库 `users`、`roles`、`permissions`、`user_roles`、`role_permissions`、`api_tokens`、`audit_logs`；不以旧系统同名表覆盖账号、密码、菜单、角色和授权。
 - 目标库 Laravel `migrations` 记录按目标结构核对并保留，不能用旧系统的迁移记录替换；`knex_migrations` 等旧框架元数据不当作业务数据直接套用。
@@ -105,8 +106,8 @@ Admin 只需 `ADMIN_PORT=13000`、`DEPLOY_NETWORK=saveb-production`。不要给�
 2. 服务器三个现有仓库分别 `git pull --ff-only origin main` 获取一次配置和工具，保留真实 .env 和根目录 nginx.conf。遇到旧 .env 符号链接先保存内容为普通文件。
 3. 服务器填写三个 .env（API 生产参数见 CONFIGURATION.md），Admin 设置 ADMIN_PORT=13000；Collector 创建 config/ 并填写来源账号、数据库 DSN 和服务 Token。API 与 Collector 共用同库，Redis 各自独立。
 4. API 目录执行 `docker compose -f docker-compose.infra.yml config --quiet`，成功后 `docker compose -f docker-compose.infra.yml up -d --wait`，仅创建新生产基础设施。
-5. 明确保留 RBAC 的来源、准备目标结构、迁入旧业务和附件并在临时库验证。空数据卷不能直接启动自动迁移代替首次导入。不要运行 migrate:fresh 或重置 RBAC。
-6. 按 AUTODEPLOY.md 注册 runner，数据准备验收后创建各项目 .deploy-ready，逐个启用 DEPLOY_ENABLED，按 API → Collector → Admin 完成首次发布。
+5. 在空库执行 server:database-init --force，创建全部结构、基础权限和初始管理员。具体容器命令见 RBAC-BOOTSTRAP.md。
+6. 按 AUTODEPLOY.md 注册 runner。基础初始化完成后先启用 API/Admin；旧业务、规则及来源配置完成后再启用 Collector。各项目就绪后分别创建 .deploy-ready 和启用 DEPLOY_ENABLED。
 7. 在后台核对权限、历史业务、附件、采集间隔，再验证当天手动采集和自动任务。
 
 ## 配置保持与后续维护
@@ -184,3 +185,32 @@ docker compose -f docker-compose.infra.yml ps
 如果 ECR Public 也超时，可继续使用已准备的离线镜像包：校验 SHA256 后 `docker load`，将上述两个参数分别设回 `postgres:16-alpine`、`redis:7-alpine`，再用 `up -d --wait --pull never` 启动。不要通过清理数据卷解决网络问题。已有运行中的基础设施再次执行 `up` 时，镜像改变可能重建对应容器，应安排维护时间。
 
 官方来源：[Docker Official Images on ECR Public](https://aws.amazon.com/blogs/containers/docker-official-images-now-available-on-amazon-elastic-container-registry-public/)。
+
+## 本地 Navicat 连接服务器 PostgreSQL
+
+生产 PostgreSQL 支持映射到服务器内网地址。服务器 saveb-api/.env 设置：
+
+```dotenv
+POSTGRES_BIND_IP=192.168.11.84
+POSTGRES_HOST_PORT=5433
+```
+
+模板默认绑定 127.0.0.1，服务器需要按上面改成内网地址；仅增加 .env 字段而不更新 Compose 不会生效。应用内部 DB_HOST=saveb-api-postgres、DB_PORT=5432 保持原值，Collector DSN 也继续使用容器内 5432。
+
+提交代码后在服务器更新，并检查 5433 没有被其他服务占用：
+
+```bash
+cd /home/admin_chen/www/saveb-api
+git pull --ff-only origin main
+ss -lnt 'sport = :5433'
+nano .env
+docker compose -f docker-compose.infra.yml config --quiet
+docker compose -f docker-compose.infra.yml up -d --no-deps --pull never --wait postgres
+docker compose -f docker-compose.infra.yml ps postgres
+```
+
+新增映射会重建本项目 PostgreSQL 容器，数据库连接会短暂中断；继续挂载原 saveb-production-postgres 数据卷，不删除数据，不重建 Redis 或旧项目容器。如果 5433 已被其他服务占用，换一个空闲的 POSTGRES_HOST_PORT，不停止对方服务。
+
+Navicat 新建 PostgreSQL 连接：主机 192.168.11.84，端口 5433，初始数据库使用 API .env 的 DB_DATABASE，用户名使用 DB_USERNAME，密码使用 DB_PASSWORD。数据库密码与后台 super_admin 的登录密码是两回事。Docker 服务名只供容器访问，不填进本机 Navicat。
+
+本机 PowerShell 可先执行 `Test-NetConnection 192.168.11.84 -Port 5433`。如果失败，先核对端口映射和网络/防火墙规则，再处理认证；不需要修改 nginx.conf。本次配置不调整服务器全局 Docker 或防火墙配置。

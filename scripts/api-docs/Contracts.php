@@ -77,8 +77,10 @@ function contract(string $controller, string $method, string $verb, array $defau
         $result['notes'][] = '作为 SA 销售统计页面底部模块，需要同时具备 business.sa_sales.list 和 business.sa_sales.personal 权限。';
         if ($method === 'report') {
             $result['notes'][] = 'staffCode 精确匹配客服编码，日期采用北京时间闭区间且最多 366 天。scope 默认 all，包含普通及 Invoice；可选 order 或 invoice。测试订单、待处理订单不计入。沿用订单人工覆盖、客服分摊、历史汇率及 Invoice 去重规则。';
-            $result['notes'][] = '前端默认传当月第一天至最后一天；daily 补齐每个日历日。退款按状态或负金额识别，summary.refunds 为正数，订单退款金额及个人金额为负数。单数按参与订单计数；缺少美元汇率的订单保留在明细但不纳入财务指标。退款率按单量为退款单数/总单数，按金额为退款额/销售额。';
-            $result['notes'][] = '所有金额统一为 USD。佣金沿用 SA 当前筛选区间阶梯：前 40000 USD 为 1.5%，随后 20000 为 2%，随后 20000 为 2.5%，其余为 3%；普通及 Invoice 独立计算后相加。';
+            $result['notes'][] = '个人统计参照 html/html/index.html 的 renderPersonalDetail。金额按全部个人分摊记录累加；成交与退款单数分别按日期、客户原名、订单总金额去重（总金额为零时回退个人金额）。totalOrders 和 orders 均为去重成交单数，不包含退款；去重不删除金额或订单明细。';
+            $result['notes'][] = '退款率按单量为退款单数/(成交单数+退款单数)，按金额为退款额/(销售额+退款额)。沿用旧版边界：无成交单时按单量为 0，无正销售额时按金额为 0。summary.refunds 为正数，退款明细金额为负数。缺少美元汇率的订单保留明细，但不纳入财务指标或去重单数。';
+            $result['notes'][] = '所有金额统一 USD，佣金按所选范围合计净销售额计算一次：前 40000 USD 为 1.5%，随后 20000 为 2%，随后 20000 为 2.5%，其余为 3%；净额不大于零时佣金为零。普通与 Invoice 合并计提。上方 SA 普通/Invoice 排行榜仍各自独立计提。';
+            $result['notes'][] = '前端默认当月完整日期，daily 补齐每个日历日供图表展示，每日表格只显示 sales>0 或 refunds>0 的日期。仍使用新系统订单及 Invoice 数据；旧 html 使用独立 sales 台账且按退款发生日新增负数记录。此接口的状态退款归入现有订单业务日期，不凭状态推造旧台账的退款日期或额外正销售记录。';
             $result['notes'][] = 'orders 默认每页 20 条，最大 100 条；合并来源后服务端分页，仅为当前页批量读取电话等附加信息。翻页传 includeSummary=0 时 summary=null、daily=[]，页面保留上次汇总；不从当前页重算总数。';
             $result['rules'] += ['page' => 'sometimes|integer|min:1|max:1000000', 'per_page' => 'sometimes|integer|min:1|max:100'];
         }
