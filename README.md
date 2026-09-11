@@ -1,5 +1,7 @@
 # SAVEB API
 
+当前服务器部署采用 **本地 push → 服务器 git pull → 服务器构建镜像并启动 Docker Compose**，无需 GHCR 或 runner。完整命令见 [服务器启动说明](APPLICATION-START.md)；自动发布文档留作后续启用时参考。
+
 **日常只维护根目录 `.env` 和 `nginx.conf`。** 本地与生产共用这两个配置入口；旧 `build/` 和环境切换符号链接已移除。首次配置、生产参数及配置生效方式见 [配置说明](CONFIGURATION.md)，服务器自动发布见 [AUTODEPLOY.md](AUTODEPLOY.md)。
 
 后端为 PHP 8.3 / Laravel，数据库为 PostgreSQL 16，缓存为 Redis 7，由 Nginx 提供 HTTP 服务。全新 clone 请先阅读 [首次安装](RBAC-BOOTSTRAP.md)，无需开发者的本地数据库。
@@ -148,3 +150,5 @@ docker exec saveb-api-app php vendor/bin/pint --config=pint.json --test app/Cont
 ## 全新开发机与服务器安装
 
 任何人 git clone 后，只需配置自己的 `.env`，创建 Docker 容器，再执行 `php artisan server:database-init --force`，即可创建全部结构、3 个基础角色、99 项菜单/操作权限及初始管理员。基础数据在 RbacSeeder 源码中；无需本地数据库快照、开发者账号或私有 JSON。首次管理员账号密码为 `super_admin` / `123456`，登录后修改密码。完整步骤见 [RBAC-BOOTSTRAP.md](RBAC-BOOTSTRAP.md)。
+
+数据库初始化成功后的 API、Admin、Collector 启动与浏览器访问见 [APPLICATION-START.md](APPLICATION-START.md)。

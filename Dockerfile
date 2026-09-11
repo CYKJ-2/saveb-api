@@ -1,4 +1,7 @@
-FROM php:8.3-fpm-bookworm AS base
+ARG PHP_IMAGE=php:8.3-fpm-bookworm
+ARG COMPOSER_IMAGE=composer:2
+FROM ${COMPOSER_IMAGE} AS composer-bin
+FROM ${PHP_IMAGE} AS base
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git unzip curl nginx libpq-dev libzip-dev libicu-dev libonig-dev libxml2-dev \
     libpng-dev libjpeg62-turbo-dev libwebp-dev tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim \
@@ -6,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && docker-php-ext-install -j2 pdo_pgsql pgsql bcmath intl zip mbstring dom xml xmlwriter opcache gd pcntl \
     && pecl install redis-6.3.0 && docker-php-ext-enable redis \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+COPY --from=composer-bin /usr/bin/composer /usr/local/bin/composer
 WORKDIR /var/www/html
 COPY docker/business-uploads.ini /usr/local/etc/php/conf.d/business-uploads.ini
 
