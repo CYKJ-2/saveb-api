@@ -17,6 +17,9 @@
     ],
     "tags": [
         {
+            "name": "SA 个人业绩详情"
+        },
+        {
             "name": "采购物流"
         },
         {
@@ -34059,6 +34062,452 @@
                 "x-return-description": "统一 JSON 响应；data 包含SA 销售列表及相应分页信息"
             }
         },
+        "/api/workbench/sa-sales/personal/options": {
+            "get": {
+                "operationId": "SaPersonalPerformance_options_get",
+                "tags": [
+                    "SA 个人业绩详情"
+                ],
+                "summary": "个人业绩员工选项及默认员工",
+                "description": "作为 SA 销售统计页面底部模块，需要同时具备 business.sa_sales.list 和 business.sa_sales.personal 权限。",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "成功",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "description": "成功时为 true",
+                                            "const": true
+                                        },
+                                        "code": {
+                                            "type": "integer",
+                                            "description": "成功业务码为 0",
+                                            "const": 0
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "操作结果提示"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/PersonalPerformanceOptions",
+                                            "description": "接口业务数据"
+                                        }
+                                    },
+                                    "required": [
+                                        "success",
+                                        "code",
+                                        "message",
+                                        "data"
+                                    ]
+                                },
+                                "example": {
+                                    "success": true,
+                                    "code": 0,
+                                    "message": "操作成功。",
+                                    "data": {
+                                        "employees": [
+                                            {
+                                                "code": "示例",
+                                                "name": "示例"
+                                            }
+                                        ],
+                                        "defaultStaffCode": "示例"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "登录令牌缺失、无效或过期",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "账户禁用、缺少权限或对象操作受保护",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ApiError"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/HttpError"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "x-permissions": [
+                    "business.sa_sales.list,business.sa_sales.personal"
+                ],
+                "x-source": "app/Controllers/SaPersonalPerformanceController.php:32",
+                "x-handler": "SaPersonalPerformanceController::options",
+                "x-request-fields": [],
+                "x-return-description": "data 包含 employees（编码、显示名称）及 defaultStaffCode"
+            }
+        },
+        "/api/workbench/sa-sales/personal/report": {
+            "get": {
+                "operationId": "SaPersonalPerformance_report_get",
+                "tags": [
+                    "SA 个人业绩详情"
+                ],
+                "summary": "员工分摊业绩、每日趋势及分页订单",
+                "description": "作为 SA 销售统计页面底部模块，需要同时具备 business.sa_sales.list 和 business.sa_sales.personal 权限。\n\nstaffCode 精确匹配客服编码，日期采用北京时间闭区间且最多 366 天。scope 默认 all，包含普通及 Invoice；可选 order 或 invoice。测试订单、待处理订单不计入。沿用订单人工覆盖、客服分摊、历史汇率及 Invoice 去重规则。\n\n前端默认传当月第一天至最后一天；daily 补齐每个日历日。退款按状态或负金额识别，summary.refunds 为正数，订单退款金额及个人金额为负数。单数按参与订单计数；缺少美元汇率的订单保留在明细但不纳入财务指标。退款率按单量为退款单数/总单数，按金额为退款额/销售额。\n\n所有金额统一为 USD。佣金沿用 SA 当前筛选区间阶梯：前 40000 USD 为 1.5%，随后 20000 为 2%，随后 20000 为 2.5%，其余为 3%；普通及 Invoice 独立计算后相加。\n\norders 默认每页 20 条，最大 100 条；合并来源后服务端分页，仅为当前页批量读取电话等附加信息。翻页传 includeSummary=0 时 summary=null、daily=[]，页面保留上次汇总；不从当前页重算总数。",
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "staffCode",
+                        "in": "query",
+                        "required": true,
+                        "description": "客服代码",
+                        "schema": {
+                            "type": "string",
+                            "description": "客服代码",
+                            "x-laravel-rules": "required|string|max:64|regex:/^[A-Za-z0-9_-]+$/",
+                            "maxLength": 64
+                        }
+                    },
+                    {
+                        "name": "startDate",
+                        "in": "query",
+                        "required": true,
+                        "description": "开始业务日期 YYYY-MM-DD，含当天",
+                        "schema": {
+                            "type": "string",
+                            "description": "开始业务日期 YYYY-MM-DD，含当天",
+                            "x-laravel-rules": "required|date_format:Y-m-d",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "endDate",
+                        "in": "query",
+                        "required": true,
+                        "description": "结束业务日期 YYYY-MM-DD，含当天；提供开始日期时不得早于开始日期",
+                        "schema": {
+                            "type": "string",
+                            "description": "结束业务日期 YYYY-MM-DD，含当天；提供开始日期时不得早于开始日期",
+                            "x-laravel-rules": "required|date_format:Y-m-d|after_or_equal:startDate",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "scope",
+                        "in": "query",
+                        "required": false,
+                        "description": "eligible 默认只看已采购且价格有效记录；all 保留全部来源行；quality 查询自动包含无效行",
+                        "schema": {
+                            "type": "string",
+                            "description": "eligible 默认只看已采购且价格有效记录；all 保留全部来源行；quality 查询自动包含无效行",
+                            "x-laravel-rules": "sometimes|in:all,order,invoice",
+                            "enum": [
+                                "all",
+                                "order",
+                                "invoice"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "includeSummary",
+                        "in": "query",
+                        "required": false,
+                        "description": "是否返回个人汇总及每日趋势；默认 true，翻页可传 0，仅返回当前页订单",
+                        "schema": {
+                            "type": "boolean",
+                            "description": "是否返回个人汇总及每日趋势；默认 true，翻页可传 0，仅返回当前页订单",
+                            "x-laravel-rules": "sometimes|boolean"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "description": "页码，从 1 开始，默认 1",
+                        "schema": {
+                            "type": "integer",
+                            "description": "页码，从 1 开始，默认 1",
+                            "x-laravel-rules": "sometimes|integer|min:1|max:1000000",
+                            "minimum": 1,
+                            "maximum": 1000000,
+                            "default": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "required": false,
+                        "description": "每页条数，默认 20，最多 100",
+                        "schema": {
+                            "type": "integer",
+                            "description": "每页条数，默认 20，最多 100",
+                            "x-laravel-rules": "sometimes|integer|min:1|max:100",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "default": 20
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "description": "成功时为 true",
+                                            "const": true
+                                        },
+                                        "code": {
+                                            "type": "integer",
+                                            "description": "成功业务码为 0",
+                                            "const": 0
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "操作结果提示"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/PersonalPerformanceReport",
+                                            "description": "接口业务数据"
+                                        }
+                                    },
+                                    "required": [
+                                        "success",
+                                        "code",
+                                        "message",
+                                        "data"
+                                    ]
+                                },
+                                "example": {
+                                    "success": true,
+                                    "code": 0,
+                                    "message": "操作成功。",
+                                    "data": {
+                                        "range": {
+                                            "staffCode": "DEMO",
+                                            "startDate": "2026-09-09",
+                                            "endDate": "2026-09-09",
+                                            "scope": "示例"
+                                        },
+                                        "summary": {
+                                            "sales": 12.34,
+                                            "refunds": 12.34,
+                                            "netSales": 12.34,
+                                            "orders": 1,
+                                            "refundOrders": 1,
+                                            "totalOrders": 1,
+                                            "missingRates": 1,
+                                            "refundRateOrders": 12.34,
+                                            "refundRateAmount": 12.34,
+                                            "commissionUsd": 12.34
+                                        },
+                                        "daily": [
+                                            {
+                                                "date": "2026-09-09",
+                                                "sales": 12.34,
+                                                "refunds": 12.34,
+                                                "netSales": 12.34
+                                            }
+                                        ],
+                                        "orders": {
+                                            "list": [
+                                                {
+                                                    "id": "示例",
+                                                    "kind": "示例",
+                                                    "date": "2026-09-09",
+                                                    "orderId": "示例",
+                                                    "customer": "示例",
+                                                    "website": "example.com",
+                                                    "classification": "示例",
+                                                    "status": "示例",
+                                                    "account": "示例",
+                                                    "refund": false,
+                                                    "orderAmount": 12.34,
+                                                    "sharePercent": 12.34,
+                                                    "myAmount": 12.34,
+                                                    "phone": "示例",
+                                                    "channel": "示例",
+                                                    "paymentMethod": "示例"
+                                                }
+                                            ],
+                                            "total": 1,
+                                            "page": 1,
+                                            "per_page": 1,
+                                            "last_page": 1
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "登录令牌缺失、无效或过期",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "账户禁用、缺少权限或对象操作受保护",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ApiError"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/HttpError"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "参数校验或业务规则不通过",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ValidationError"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/HttpError"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/ApiError"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "x-permissions": [
+                    "business.sa_sales.list,business.sa_sales.personal"
+                ],
+                "x-source": "app/Controllers/SaPersonalPerformanceController.php:45",
+                "x-handler": "SaPersonalPerformanceController::report",
+                "x-request-fields": [
+                    {
+                        "name": "staffCode",
+                        "required": true,
+                        "rules": "required|string|max:64|regex:/^[A-Za-z0-9_-]+$/",
+                        "schema": {
+                            "type": "string",
+                            "description": "客服代码",
+                            "x-laravel-rules": "required|string|max:64|regex:/^[A-Za-z0-9_-]+$/",
+                            "maxLength": 64
+                        }
+                    },
+                    {
+                        "name": "startDate",
+                        "required": true,
+                        "rules": "required|date_format:Y-m-d",
+                        "schema": {
+                            "type": "string",
+                            "description": "开始业务日期 YYYY-MM-DD，含当天",
+                            "x-laravel-rules": "required|date_format:Y-m-d",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "endDate",
+                        "required": true,
+                        "rules": "required|date_format:Y-m-d|after_or_equal:startDate",
+                        "schema": {
+                            "type": "string",
+                            "description": "结束业务日期 YYYY-MM-DD，含当天；提供开始日期时不得早于开始日期",
+                            "x-laravel-rules": "required|date_format:Y-m-d|after_or_equal:startDate",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "scope",
+                        "required": false,
+                        "rules": "sometimes|in:all,order,invoice",
+                        "schema": {
+                            "type": "string",
+                            "description": "eligible 默认只看已采购且价格有效记录；all 保留全部来源行；quality 查询自动包含无效行",
+                            "x-laravel-rules": "sometimes|in:all,order,invoice",
+                            "enum": [
+                                "all",
+                                "order",
+                                "invoice"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "includeSummary",
+                        "required": false,
+                        "rules": "sometimes|boolean",
+                        "schema": {
+                            "type": "boolean",
+                            "description": "是否返回个人汇总及每日趋势；默认 true，翻页可传 0，仅返回当前页订单",
+                            "x-laravel-rules": "sometimes|boolean"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "rules": "sometimes|integer|min:1|max:1000000",
+                        "schema": {
+                            "type": "integer",
+                            "description": "页码，从 1 开始，默认 1",
+                            "x-laravel-rules": "sometimes|integer|min:1|max:1000000",
+                            "minimum": 1,
+                            "maximum": 1000000,
+                            "default": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "required": false,
+                        "rules": "sometimes|integer|min:1|max:100",
+                        "schema": {
+                            "type": "integer",
+                            "description": "每页条数，默认 20，最多 100",
+                            "x-laravel-rules": "sometimes|integer|min:1|max:100",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "default": 20
+                        }
+                    }
+                ],
+                "x-return-description": "data 包含 range、summary、daily、orders；金额统一为 USD，保留两位小数"
+            }
+        },
         "/api/workbench/sa-sales/report": {
             "get": {
                 "operationId": "SaSales_report_get",
@@ -39204,6 +39653,345 @@
                     "totalAmount"
                 ]
             },
+            "PersonalPerformanceEmployee": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "客服编码"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "用户显示名称，没有名称映射时返回编码"
+                    }
+                },
+                "required": [
+                    "code",
+                    "name"
+                ]
+            },
+            "PersonalPerformanceOptions": {
+                "type": "object",
+                "properties": {
+                    "employees": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PersonalPerformanceEmployee"
+                        },
+                        "description": "在职及历史客服"
+                    },
+                    "defaultStaffCode": {
+                        "type": "string",
+                        "description": "优先当前用户绑定的客服，否则第一个员工，无员工时为空"
+                    }
+                },
+                "required": [
+                    "employees",
+                    "defaultStaffCode"
+                ]
+            },
+            "PersonalPerformanceRange": {
+                "type": "object",
+                "properties": {
+                    "staffCode": {
+                        "type": "string",
+                        "description": "规范化客服编码"
+                    },
+                    "startDate": {
+                        "type": "string",
+                        "format": "date",
+                        "description": "起始日期含当天"
+                    },
+                    "endDate": {
+                        "type": "string",
+                        "format": "date",
+                        "description": "结束日期含当天"
+                    },
+                    "scope": {
+                        "type": "string",
+                        "description": "all/order/invoice"
+                    }
+                },
+                "required": [
+                    "staffCode",
+                    "startDate",
+                    "endDate",
+                    "scope"
+                ]
+            },
+            "PersonalPerformanceSummary": {
+                "type": "object",
+                "properties": {
+                    "sales": {
+                        "type": "number",
+                        "description": "按分摊计算的正销售 USD"
+                    },
+                    "refunds": {
+                        "type": "number",
+                        "description": "退款 USD 正数"
+                    },
+                    "netSales": {
+                        "type": "number",
+                        "description": "销售减退款 USD"
+                    },
+                    "orders": {
+                        "type": "integer",
+                        "description": "有美元金额的成交参与单数"
+                    },
+                    "refundOrders": {
+                        "type": "integer",
+                        "description": "有美元金额的退款参与单数"
+                    },
+                    "totalOrders": {
+                        "type": "integer",
+                        "description": "成交加退款单数"
+                    },
+                    "missingRates": {
+                        "type": "integer",
+                        "description": "缺少美元换算汇率的订单数"
+                    },
+                    "refundRateOrders": {
+                        "type": "number",
+                        "description": "退款单数占总单数百分比"
+                    },
+                    "refundRateAmount": {
+                        "type": "number",
+                        "description": "退款额占正销售额百分比"
+                    },
+                    "commissionUsd": {
+                        "type": "number",
+                        "description": "普通及 Invoice 分别计算的美元佣金之和"
+                    }
+                },
+                "required": [
+                    "sales",
+                    "refunds",
+                    "netSales",
+                    "orders",
+                    "refundOrders",
+                    "totalOrders",
+                    "missingRates",
+                    "refundRateOrders",
+                    "refundRateAmount",
+                    "commissionUsd"
+                ]
+            },
+            "PersonalPerformanceDay": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date",
+                        "description": "北京时间日期"
+                    },
+                    "sales": {
+                        "type": "number",
+                        "description": "个人销售 USD"
+                    },
+                    "refunds": {
+                        "type": "number",
+                        "description": "个人退款 USD 正数"
+                    },
+                    "netSales": {
+                        "type": "number",
+                        "description": "个人净销售 USD"
+                    }
+                },
+                "required": [
+                    "date",
+                    "sales",
+                    "refunds",
+                    "netSales"
+                ]
+            },
+            "PersonalPerformanceOrder": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "来源类型及数据库 ID"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "order 或 invoice"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date",
+                        "description": "业务日期"
+                    },
+                    "orderId": {
+                        "type": "string",
+                        "description": "展示订单号"
+                    },
+                    "customer": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "客户姓名"
+                    },
+                    "website": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "来源网站"
+                    },
+                    "classification": {
+                        "type": "string",
+                        "description": "销售分类"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "标准化订单状态"
+                    },
+                    "account": {
+                        "type": "string",
+                        "description": "收款账户"
+                    },
+                    "refund": {
+                        "type": "boolean",
+                        "description": "是否退款"
+                    },
+                    "orderAmount": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "订单总金额 USD，退款为负数，缺汇率为 null"
+                    },
+                    "sharePercent": {
+                        "type": "number",
+                        "description": "客服分摊百分比"
+                    },
+                    "myAmount": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "个人分摊金额 USD"
+                    },
+                    "phone": {
+                        "type": "string",
+                        "description": "客户电话，缺失为空"
+                    },
+                    "channel": {
+                        "type": "string",
+                        "description": "销售渠道"
+                    },
+                    "paymentMethod": {
+                        "type": "string",
+                        "description": "支付方式，缺失为空"
+                    }
+                },
+                "required": [
+                    "id",
+                    "kind",
+                    "date",
+                    "orderId",
+                    "customer",
+                    "website",
+                    "classification",
+                    "status",
+                    "account",
+                    "refund",
+                    "orderAmount",
+                    "sharePercent",
+                    "myAmount",
+                    "phone",
+                    "channel",
+                    "paymentMethod"
+                ]
+            },
+            "PersonalPerformancePage": {
+                "type": "object",
+                "properties": {
+                    "list": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PersonalPerformanceOrder"
+                        },
+                        "description": "本页记录"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "description": "筛选记录总数"
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "当前页，从 1 开始"
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "每页条数"
+                    },
+                    "last_page": {
+                        "type": "integer",
+                        "description": "最后一页页码"
+                    }
+                },
+                "required": [
+                    "list",
+                    "total",
+                    "page",
+                    "per_page",
+                    "last_page"
+                ]
+            },
+            "PersonalPerformanceReport": {
+                "type": "object",
+                "properties": {
+                    "range": {
+                        "$ref": "#/components/schemas/PersonalPerformanceRange",
+                        "description": "实际查询条件"
+                    },
+                    "summary": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/PersonalPerformanceSummary"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "个人汇总，includeSummary=0 时为 null"
+                    },
+                    "daily": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PersonalPerformanceDay"
+                        },
+                        "description": "补齐的每日趋势，includeSummary=0 时为空"
+                    },
+                    "orders": {
+                        "$ref": "#/components/schemas/PersonalPerformancePage",
+                        "description": "订单明细分页"
+                    }
+                },
+                "required": [
+                    "range",
+                    "summary",
+                    "daily",
+                    "orders"
+                ]
+            },
             "Procurement": {
                 "type": "object",
                 "properties": {
@@ -43195,7 +43983,7 @@
             }
         }
     },
-    "x-route-count": 128,
+    "x-route-count": 130,
     "x-error-codes": [
         {
             "code": 0,

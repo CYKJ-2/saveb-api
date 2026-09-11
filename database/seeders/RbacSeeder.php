@@ -131,6 +131,7 @@ class RbacSeeder extends Seeder
             ]],
             'sa_sales' => ['SA Sales Analysis', 'SA 销售分析', 'sa-sales', [
                 'list' => ['View Sales Report', '查看销售报表'],
+                'personal' => ['View Personal Performance', '查看个人业绩详情'],
                 'export' => ['Export Sales Report', '导出销售报表'],
             ]],
             'procurement' => ['Procurement Workbench', '采购工作台', 'procurement', [

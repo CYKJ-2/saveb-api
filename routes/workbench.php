@@ -9,10 +9,13 @@ use App\Controllers\PaypalController;
 use App\Controllers\ProcurementController;
 use App\Controllers\LogisticsController;
 use App\Controllers\SaSalesController;
+use App\Controllers\SaPersonalPerformanceController;
 use App\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('workbench')->middleware('auth.api')->group(function () {
+    Route::get('sa-sales/personal/options', [SaPersonalPerformanceController::class, 'options'])->middleware('permission:business.sa_sales.list,business.sa_sales.personal');
+    Route::get('sa-sales/personal/report', [SaPersonalPerformanceController::class, 'report'])->middleware('permission:business.sa_sales.list,business.sa_sales.personal');
     Route::get('procurement/logistics/status', [LogisticsController::class, 'status'])->middleware('permission:business.procurement.list');
     Route::post('procurement/logistics/refresh', [LogisticsController::class, 'refresh'])->middleware('permission:business.procurement.list,business.procurement.logistics');
     Route::get('invoices/logs/export', [InvoiceController::class,'exportLogs'])->middleware('permission:business.invoice.logs,business.invoice.export');

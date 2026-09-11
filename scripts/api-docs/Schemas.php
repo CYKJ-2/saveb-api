@@ -177,6 +177,14 @@ function schemas(): array
     $s['SalesReport'] = $s['SalesSummary'];
     $s['SalesReport']['properties'] += shape('invoiceSales:SalesSummary:Invoice 独立销售统计;source:Bounds:数据覆盖信息;range:Range:查询日期')['properties'];
     $s['SalesOrders'] = page('SalesDetail', 'totalAmount:n:全部筛选订单的净金额 USD');
+    $s['PersonalPerformanceEmployee'] = shape('code:s:客服编码;name:s:用户显示名称，没有名称映射时返回编码');
+    $s['PersonalPerformanceOptions'] = shape('employees:[]PersonalPerformanceEmployee:在职及历史客服;defaultStaffCode:s:优先当前用户绑定的客服，否则第一个员工，无员工时为空');
+    $s['PersonalPerformanceRange'] = shape('staffCode:s:规范化客服编码;startDate:date:起始日期含当天;endDate:date:结束日期含当天;scope:s:all/order/invoice');
+    $s['PersonalPerformanceSummary'] = shape('sales:n:按分摊计算的正销售 USD;refunds:n:退款 USD 正数;netSales:n:销售减退款 USD;orders:i:有美元金额的成交参与单数;refundOrders:i:有美元金额的退款参与单数;totalOrders:i:成交加退款单数;missingRates:i:缺少美元换算汇率的订单数;refundRateOrders:n:退款单数占总单数百分比;refundRateAmount:n:退款额占正销售额百分比;commissionUsd:n:普通及 Invoice 分别计算的美元佣金之和');
+    $s['PersonalPerformanceDay'] = shape('date:date:北京时间日期;sales:n:个人销售 USD;refunds:n:个人退款 USD 正数;netSales:n:个人净销售 USD');
+    $s['PersonalPerformanceOrder'] = shape('id:s:来源类型及数据库 ID;kind:s:order 或 invoice;date:date:业务日期;orderId:s:展示订单号;customer:?s:客户姓名;website:?s:来源网站;classification:s:销售分类;status:s:标准化订单状态;account:s:收款账户;refund:b:是否退款;orderAmount:?n:订单总金额 USD，退款为负数，缺汇率为 null;sharePercent:n:客服分摊百分比;myAmount:?n:个人分摊金额 USD;phone:s:客户电话，缺失为空;channel:s:销售渠道;paymentMethod:s:支付方式，缺失为空');
+    $s['PersonalPerformancePage'] = page('PersonalPerformanceOrder');
+    $s['PersonalPerformanceReport'] = shape('range:PersonalPerformanceRange:实际查询条件;summary:?PersonalPerformanceSummary:个人汇总，includeSummary=0 时为 null;daily:[]PersonalPerformanceDay:补齐的每日趋势，includeSummary=0 时为空;orders:PersonalPerformancePage:订单明细分页');
     $s['Procurement'] = shape('id:?i:采购任务 ID，未创建任务时为 null;sourceKey:s:来源键，order:ID / invoice:ID / task:ID;orderId:s:订单号;~customer:?s:客户;date:date:日期;~site:?s:来源网站;~amount:?money:USD 金额;~amountOriginal:?n:原币金额;~currency:?s:币种;~createTime:time:下单时间;~paypalOrderId:?s:PayPal 订单号;productName:s:商品名称;quantity:i:数量;purchaseStatus:s:采购状态;version:i:任务版本，来源候选为 0;products:[]Product:商品明细;~supplier:?s:供应商;~cost:?money:采购成本;~eta:?s:预计到货日期;~trackingNumber:?s:运单号;~trackingCarrier:?s:承运商;~trackingPhone:?s:物流电话;~notes:?s:备注;~warehouseId:?i:仓库记录 ID;~deliveryStatus:s:物流状态', ['additionalProperties' => true]);
     $s['ProcurementPage'] = page('Procurement');
     $s['WarehouseItem'] = shape('name:s:商品名称;quantity:i:商品数量;~inspection:s:pending/passed/failed;~shippedQuantity:i:已发货数量;~outboundTracking:s:出库运单;~notes:s:商品备注', ['additionalProperties' => true]);

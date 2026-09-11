@@ -25,7 +25,11 @@ test -e .env || cp .env.example .env
 chmod 600 .env
 ```
 
-`.env.example` 是配置模板，不能直接当作完整生产配置；本地和生产分别按下表核对同一个 `.env`：
+`.env.example` 默认给出 Linux 服务器配置，每组字段都有中文说明和本地差异；填完标记为【必填】的真实凭据后使用。本地 `.env` 与模板字段对齐，值分别维护，不能把本地文件直接覆盖到服务器。
+
+已移除不被当前程序读取的 `APP_TIMEZONE`、`BROADCAST_CONNECTION`、`UPLOAD_DISK`、`MAX_UPLOAD_SIZE`、`IMAGE_REGISTRY`、`IMAGE_TAG`。旧 `NGINX_PORT` 的有效值迁到 `API_PORT`；自动发布镜像由工作流注入。上传限制在 `docker/business-uploads.ini` 和 `nginx.conf` 设置。Laravel 当前时区在 `config/app.php` 固定为 UTC，删除无效的 APP_TIMEZONE 不改变现有日期处理行为。
+
+本次整理保留了原有有效配置值，并将原始私有文件备份为 `.env.backup-时间戳`，备份同样被 Git/Docker 忽略。配置统一使用 UTF-8（无 BOM）和 LF 换行。本地和生产按下表核对同一个 `.env`：
 
 | 参数 | 本地开发 | 生产服务器 |
 |---|---|---|

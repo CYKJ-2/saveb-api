@@ -18,8 +18,13 @@ function contract(string $controller, string $method, string $verb, array $defau
         'Warehouse' => '仓库工作台', 'Influencer' => '达人工作台', 'Paypal' => 'PayPal 余额监控',
         'Operations' => '工作巡查', 'Collector' => '数据采集', 'CollectorManagement' => '数据采集',
         'Logistics' => '采购物流', 'Analysis' => 'Analysis 采购成交价格分析',
+        'SaPersonalPerformance' => 'SA 个人业绩详情',
     ];
     $maps = [
+        'SaPersonalPerformance' => [
+            'options' => ['个人业绩员工选项及默认员工', 'PersonalPerformanceOptions'],
+            'report' => ['员工分摊业绩、每日趋势及分页订单', 'PersonalPerformanceReport'],
+        ],
         'Analysis' => [
             'options' => ['分析筛选项与双语列定义', 'AnalysisOptions'],
             'report' => ['CNY 成交总览、日月趋势、排行占比和四组交叉分析', 'AnalysisReport'],
@@ -68,6 +73,16 @@ function contract(string $controller, string $method, string $verb, array $defau
     }
     [$title, $response] = $entry;
     $result = ['title' => $title, 'group' => $groups[$controller], 'response' => $response, 'notes' => [], 'rules' => [], 'extra' => []];
+    if ($controller === 'SaPersonalPerformance') {
+        $result['notes'][] = '作为 SA 销售统计页面底部模块，需要同时具备 business.sa_sales.list 和 business.sa_sales.personal 权限。';
+        if ($method === 'report') {
+            $result['notes'][] = 'staffCode 精确匹配客服编码，日期采用北京时间闭区间且最多 366 天。scope 默认 all，包含普通及 Invoice；可选 order 或 invoice。测试订单、待处理订单不计入。沿用订单人工覆盖、客服分摊、历史汇率及 Invoice 去重规则。';
+            $result['notes'][] = '前端默认传当月第一天至最后一天；daily 补齐每个日历日。退款按状态或负金额识别，summary.refunds 为正数，订单退款金额及个人金额为负数。单数按参与订单计数；缺少美元汇率的订单保留在明细但不纳入财务指标。退款率按单量为退款单数/总单数，按金额为退款额/销售额。';
+            $result['notes'][] = '所有金额统一为 USD。佣金沿用 SA 当前筛选区间阶梯：前 40000 USD 为 1.5%，随后 20000 为 2%，随后 20000 为 2.5%，其余为 3%；普通及 Invoice 独立计算后相加。';
+            $result['notes'][] = 'orders 默认每页 20 条，最大 100 条；合并来源后服务端分页，仅为当前页批量读取电话等附加信息。翻页传 includeSummary=0 时 summary=null、daily=[]，页面保留上次汇总；不从当前页重算总数。';
+            $result['rules'] += ['page' => 'sometimes|integer|min:1|max:1000000', 'per_page' => 'sometimes|integer|min:1|max:100'];
+        }
+    }
     if ($controller === 'Analysis') {
         $result['resolvedDynamic'] = true;
         if ($method !== 'import' && $method !== 'evidence') {
@@ -280,6 +295,7 @@ function descriptions(): array
         'grain' => 'Analysis 趋势粒度 day 或 month，默认 month', 'source_type' => 'suppliers 供应商优选表，procurement 采购集成表',
         'price_basis' => 'row_total 每行商品合计、unit 单件价格、unknown 待确认',
         'includeDetails' => '兼容参数；当前 SA report 固定为 false，明细请独立查询',
+        'includeSummary' => '是否返回个人汇总及每日趋势；默认 true，翻页可传 0，仅返回当前页订单',
         'sourceKey' => '来源订单标识，如 order:123 或 invoice:invoice:123，使用列表返回值原样提交',
         'products' => '采购商品列表；来源商品及已交仓商品受业务保护', 'products.*.name' => '采购商品名称',
         'products.*.quantity' => '采购商品数量', 'quantity' => '商品总数量', 'purchaseStatus' => '采购状态', 'supplier' => '供应商',

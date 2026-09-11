@@ -133,6 +133,10 @@ API/Collector 发布备份在 /home/admin_chen/www/backups/release-*；包含完
 
 ## 本次验证范围
 
+2026-09-11 修复空 CI 数据库测试：Dashboard/Workbench 原先通过 `LIKE public.orders` 等语句复制本地业务库结构，GitHub 新建的空 PostgreSQL 没有这些表。现在 `tests/Support/BusinessSchema.php` 使用仓库中的结构清单、序列、索引和增量迁移创建独立测试表，拒绝在非 `rbac_test_*` schema 中安装。无需把真实业务数据导入 GitHub，也不需要修改服务器 .env。初始化测试同时改为逐项核对基线外键及隔离范围，不再固定旧版外键总数。
+
+本次使用独立、临时 PostgreSQL 运行云端同样的六组集成测试：RBAC 16、Orders 18、Dashboard 10、Workbench 60（其中 1 项跳过）、Local 4、Collector 12，均无失败；测试后 public 仍为零张业务表。单元测试 24 项完成，有 1 项既有 PHPUnit warning；三个项目的发布故障回归各 16 项通过。截图中的 Node.js 20 弃用提示不是 SQL 缺表失败的原因。推送修复后应检查新提交触发的工作流；重跑旧提交仍使用旧测试代码。
+
 发布脚本使用隔离临时目录和模拟 Docker 命令做故障回归，不连接业务库；检查 Compose 中端口、资源名及 RELEASE_IMAGE 注入。云端 Actions 权限、实际 GHCR 镜像构建、服务器 runner 注册和完整上线验收仍需在真实环境完成。工作流和脚本准备完成不代表 GitHub/服务器已启用。
 
 本地验证记录：发布故障回归 14 项通过；Admin 42 项测试及生产构建通过；API RBAC 16 项测试、107 个断言通过；Collector 32 项通过，46 项因未配置隔离集成库而跳过。验证时补回 API 已被引用但缺失的 PermissionNameSeeder，并修复 Admin 导航测试对新 external-menu 模块的加载；没有对业务库执行 Seeder。

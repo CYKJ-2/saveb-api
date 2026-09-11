@@ -17,6 +17,7 @@ use App\Services\DashboardOverviewService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
+use Tests\Support\BusinessSchema;
 
 class DashboardOverviewTest extends TestCase
 {
@@ -32,14 +33,7 @@ class DashboardOverviewTest extends TestCase
         DB::statement('CREATE SCHEMA ' . $this->schema);
         DB::statement('SET search_path TO ' . $this->schema);
         (require database_path('migrations/2026_09_04_180000_create_rbac.php'))->up();
-        foreach (['orders','invoice_orders','invoice_items','invoice_staff_allocations','order_user_overrides','order_staff_allocations','exchange_rates','paypal_accounts','paypal_withdrawals','online_spreadsheets'] as $table) {
-            DB::statement('CREATE TABLE ' . $table . ' (LIKE public.' . $table . ' INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)');
-            $column = DB::selectOne('select data_type from information_schema.columns where table_schema=? and table_name=? and column_name=?', [$this->schema,$table,'id']);
-            if (in_array($column?->data_type, ['bigint','integer'])) {
-                DB::statement('CREATE SEQUENCE ' . $table . '_test_id_seq');
-                DB::statement("ALTER TABLE $table ALTER COLUMN id SET DEFAULT nextval('{$this->schema}.{$table}_test_id_seq')");
-            }
-        }
+        BusinessSchema::create(['orders','invoice_orders','invoice_items','invoice_staff_allocations','order_user_overrides','order_staff_allocations','exchange_rates','paypal_accounts','paypal_withdrawals','online_spreadsheets']);
         (require database_path('migrations/2026_09_06_180000_add_dashboard_overview_permissions.php'))->up();
         $admin = User::create(['username' => 'admin','display_name' => 'Admin','password_hash' => Hash::make('Test-123'),'active' => 1,'role_id' => 1]);
         $this->withHeader('Authorization', 'Bearer ' . ApiToken::issue($admin->id)['plain']);

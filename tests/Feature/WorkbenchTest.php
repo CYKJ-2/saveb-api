@@ -15,9 +15,124 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
+use Tests\Support\BusinessSchema;
 
 class WorkbenchTest extends TestCase
 {
+    public function test_personal_performance_uses_staff_shares_refunds_and_invoice_deduplication(): void
+    {
+        $this->order(['amount_usd' => 100, 'raw' => ['staffAllocations' => [
+            ['staffCode' => 'AA', 'percent' => 25], ['staffCode' => 'BB', 'percent' => 75],
+        ], 'phoneNumber' => '123456', 'platform' => 'Retail', 'paymentMethod' => 'Card']]);
+        $this->order(['amount_usd' => 40, 'order_status' => 'refunded']);
+        $invoice = \App\Models\InvoiceOrder::create(['order_number' => 'PERSONAL-I', 'invoice_date' => '2026-08-02', 'order_date' => '2026-08-02',
+            'invoice_status' => 'Paid', 'amount_usd' => 200, 'phone_number' => '789012']);
+        $refund = \App\Models\InvoiceOrder::create(['order_number' => 'PERSONAL-R', 'invoice_date' => '2026-08-03', 'order_date' => '2026-08-03',
+            'invoice_status' => 'refunded', 'amount_usd' => 20]);
+        foreach ([$invoice, $refund] as $item) {
+            foreach (['AA', 'BB'] as $code) {
+                \App\Models\InvoiceStaffAllocation::create(['invoice_id' => $item->id, 'staff_code' => $code, 'share_ratio' => .5]);
+            }
+        }
+        $this->order(['classification' => 'invoice', 'client_order_id' => 'PERSONAL-I', 'amount_usd' => 200]);
+        $this->order(['order_status' => 'pending']);
+        $this->order(['customer_name' => 'Test Buyer']);
+        $this->order(['staff_code' => 'AAA']);
+        $report = $this->getJson('/api/workbench/sa-sales/personal/report?staffCode=aa&startDate=2026-08-01&endDate=2026-08-31')
+            ->assertOk()->assertJsonPath('data.range.staffCode', 'AA')
+            ->assertJsonPath('data.summary.sales', 125)->assertJsonPath('data.summary.refunds', 50)
+            ->assertJsonPath('data.summary.netSales', 75)->assertJsonPath('data.summary.totalOrders', 4)
+            ->assertJsonPath('data.summary.orders', 2)->assertJsonPath('data.summary.refundOrders', 2)
+            ->assertJsonPath('data.summary.refundRateOrders', 50)->assertJsonPath('data.summary.refundRateAmount', 40)
+            ->assertJsonPath('data.summary.commissionUsd', 1.35)
+            ->assertJsonCount(31, 'data.daily')->assertJsonPath('data.daily.30.date', '2026-08-31')
+            ->assertJsonPath('data.daily.30.sales', 0)->assertJsonPath('data.orders.total', 4)->json('data');
+        $this->assertEquals(75, array_sum(array_column($report['daily'], 'netSales')));
+        $orders = collect($report['orders']['list']);
+        $card = $orders->firstWhere('phone', '123456');
+        $this->assertEquals(25, $card['myAmount']);
+        $this->assertEquals(25, $card['sharePercent']);
+        $this->assertSame('Card', $card['paymentMethod']);
+        $this->assertSame('Retail', $card['channel']);
+        $this->assertSame('789012', $orders->firstWhere('orderId', 'PERSONAL-I')['phone']);
+        $this->assertSame('invoice:' . $invoice->id, $orders->firstWhere('orderId', 'PERSONAL-I')['id']);
+        $this->assertEquals(-10, $orders->firstWhere('orderId', 'PERSONAL-R')['myAmount']);
+    }
+
+    public function test_personal_performance_pagination_does_not_truncate_totals_and_can_skip_summary(): void
+    {
+        for ($index = 0; $index < 25; $index++) {
+            $this->order(['amount_usd' => 20, 'raw' => ['staffAllocations' => [
+                ['staffCode' => 'AA', 'percent' => 50], ['staffCode' => 'BB', 'percent' => 50],
+            ]]]);
+        }
+        $url = '/api/workbench/sa-sales/personal/report?staffCode=AA&startDate=2026-08-01&endDate=2026-08-31';
+        $first = $this->getJson($url)->assertOk()->assertJsonCount(20, 'data.orders.list')
+            ->assertJsonPath('data.orders.total', 25)->assertJsonPath('data.summary.sales', 250)->json('data');
+        $last = $this->getJson($url . '&page=2&includeSummary=0')->assertOk()
+            ->assertJsonCount(5, 'data.orders.list')->assertJsonPath('data.summary', null)->assertJsonPath('data.daily', [])->json('data');
+        $this->assertCount(25, array_unique(array_merge(array_column($first['orders']['list'], 'id'), array_column($last['orders']['list'], 'id'))));
+        $this->getJson($url . '&page=999')->assertOk()->assertJsonPath('data.orders.page', 2);
+    }
+
+    public function test_personal_performance_supports_single_dates_business_timezone_and_missing_rates(): void
+    {
+        $this->order(['order_time' => '2026-08-01T15:59:59Z', 'amount_usd' => 10]);
+        $this->order(['order_time' => '2026-08-01T16:00:00Z', 'amount_usd' => 20]);
+        $this->order(['order_time' => '2026-08-02T16:00:00Z', 'amount_usd' => 30]);
+        $this->order(['order_time' => '2026-08-02T00:00:00Z', 'currency' => 'EUR', 'amount_usd' => null]);
+        $url = '/api/workbench/sa-sales/personal/report?staffCode=AA&startDate=2026-08-02&endDate=2026-08-02';
+        $this->getJson($url)->assertOk()->assertJsonCount(1, 'data.daily')
+            ->assertJsonPath('data.summary.sales', 20)->assertJsonPath('data.summary.orders', 1)
+            ->assertJsonPath('data.summary.missingRates', 1)->assertJsonPath('data.orders.total', 2);
+        $this->getJson($url . '&scope=invoice')->assertOk()->assertJsonPath('data.orders.total', 0)
+            ->assertJsonPath('data.summary.refundRateOrders', 0)->assertJsonPath('data.summary.refundRateAmount', 0);
+        $this->getJson('/api/workbench/sa-sales/personal/report?staffCode=AA&startDate=2026-07-01&endDate=2026-07-31')
+            ->assertOk()->assertJsonCount(31, 'data.daily')->assertJsonPath('data.orders.total', 0);
+    }
+
+    public function test_personal_commission_matches_separate_regular_and_invoice_sa_rankings(): void
+    {
+        $this->order(['amount_usd' => 80000]);
+        $invoice = \App\Models\InvoiceOrder::create(['order_number' => 'COMMISSION-I', 'invoice_date' => '2026-08-02', 'order_date' => '2026-08-02', 'invoice_status' => 'Paid', 'amount_usd' => 80000]);
+        \App\Models\InvoiceStaffAllocation::create(['invoice_id' => $invoice->id, 'staff_code' => 'AA', 'share_ratio' => 1]);
+        $query = '?startDate=2026-08-01&endDate=2026-08-31';
+        $sa = $this->getJson('/api/workbench/sa-sales/report' . $query)->assertOk()->json('data');
+        $personal = $this->getJson('/api/workbench/sa-sales/personal/report' . $query . '&staffCode=AA')
+            ->assertOk()->assertJsonPath('data.summary.commissionUsd', 3000)->json('data.summary');
+        $this->assertEquals($sa['employees'][0]['commission'] + $sa['invoiceSales']['employees'][0]['commission'], $personal['commissionUsd']);
+        $this->getJson('/api/workbench/sa-sales/personal/report' . $query . '&staffCode=AA&scope=order')
+            ->assertOk()->assertJsonPath('data.summary.commissionUsd', 1500)->assertJsonPath('data.orders.total', 1);
+    }
+
+    public function test_personal_options_names_validation_and_permissions(): void
+    {
+        $this->admin->update(['staff_code' => 'AA', 'display_name' => 'Alice']);
+        $this->order(['staff_code' => 'BB']);
+        $this->getJson('/api/workbench/sa-sales/personal/options')->assertOk()
+            ->assertJsonPath('data.defaultStaffCode', 'AA')->assertJsonFragment(['code' => 'AA', 'name' => 'Alice'])
+            ->assertJsonFragment(['code' => 'BB', 'name' => 'BB']);
+        $url = '/api/workbench/sa-sales/personal/report';
+        foreach (['', '?staffCode=AA&startDate=2026-08-03&endDate=2026-08-01',
+            '?staffCode=AA&startDate=2025-01-01&endDate=2026-01-02',
+            '?staffCode=AA&startDate=2026-08-01&endDate=2026-08-31&scope=invalid',
+            '?staffCode=AA&startDate=2026-08-01&endDate=2026-08-31&per_page=101'] as $query) {
+            $this->getJson($url . $query)->assertUnprocessable();
+        }
+        $query = '?staffCode=AA&startDate=2026-08-01&endDate=2026-08-31';
+        $this->loginWith(['business.sa_sales.list']);
+        $this->getJson($url . $query)->assertForbidden();
+        $this->getJson('/api/workbench/sa-sales/personal/options')->assertForbidden();
+        $this->loginWith(['business.sa_sales.personal']);
+        $this->getJson($url . $query)->assertForbidden();
+        $this->loginWith(['business.sa_sales.list', 'business.sa_sales.personal']);
+        $this->getJson($url . $query)->assertOk();
+        $this->getJson('/api/workbench/sa-sales/personal/options')->assertOk();
+        $this->withHeader('Authorization', '');
+        $this->getJson($url . $query)->assertUnauthorized();
+        $this->getJson('/api/workbench/sa-sales/personal/options')->assertUnauthorized();
+    }
+
     public function test_invoice_list_omits_raw_database_snapshot_but_detail_keeps_it(): void
     {
         $invoice = \App\Models\InvoiceOrder::create([
@@ -434,21 +549,11 @@ class WorkbenchTest extends TestCase
         DB::statement('CREATE SCHEMA ' . $this->schema);
         DB::statement('SET search_path TO ' . $this->schema);
         (require database_path('migrations/2026_09_04_180000_create_rbac.php'))->up();
-        // Copy schema only. Every serial default is replaced with a local sequence before any insertion.
-        foreach (['orders','invoice_orders','invoice_items','invoice_staff_allocations','exchange_rates','order_user_overrides','order_staff_allocations','procurement_tasks','procurement_removed_orders','warehouse_records','online_spreadsheets','business_operation_logs','attachments','paypal_accounts','paypal_balance_entries','paypal_reviews','paypal_withdrawals','influencers','influencer_domains'] as $table) {
-            DB::statement('CREATE TABLE ' . $table . ' (LIKE public.' . $table . ' INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)');
-            $column = DB::selectOne('select data_type from information_schema.columns where table_schema=? and table_name=? and column_name=?', [$this->schema,$table,'id']);
-            if (in_array($column?->data_type, ['bigint','integer'])) {
-                DB::statement('CREATE SEQUENCE ' . $table . '_test_id_seq');
-                DB::statement("ALTER TABLE $table ALTER COLUMN id SET DEFAULT nextval('{$this->schema}.{$table}_test_id_seq')");
-            }
-        }
+        BusinessSchema::create(['orders','invoice_orders','invoice_items','invoice_staff_allocations','exchange_rates','order_user_overrides','order_staff_allocations','procurement_tasks','procurement_removed_orders','warehouse_records','online_spreadsheets','business_operation_logs','attachments','paypal_accounts','paypal_balance_entries','paypal_reviews','paypal_withdrawals','influencers','influencer_domains','system_state','legacy_dashboard_days']);
         (require database_path('migrations/2026_09_06_140001_add_workbench_permissions.php'))->up();
         (require database_path('migrations/2026_09_08_140000_add_procurement_logistics_permission.php'))->up();
         (require database_path('migrations/2026_09_08_180000_add_paypal_monitor_permissions.php'))->up();
-        foreach (['system_state', 'legacy_dashboard_days'] as $table) {
-            DB::statement('CREATE TABLE ' . $table . ' (LIKE public.' . $table . ' INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)');
-        }
+        (require database_path('migrations/2026_09_11_180000_add_sa_personal_performance_permission.php'))->up();
         $this->admin = User::create(['username' => 'admin','display_name' => 'Admin','password_hash' => Hash::make('Test-123'),'active' => 1,'role_id' => 1]);
         $this->adminToken = ApiToken::issue($this->admin->id)['plain'];
         $this->withHeader('Authorization', 'Bearer ' . $this->adminToken);

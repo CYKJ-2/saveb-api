@@ -52,8 +52,23 @@ class LocalDatabaseTest extends TestCase
             }
         }
         $foreignKeys = DB::table('information_schema.table_constraints')
-            ->where('constraint_schema', $this->schema)->where('constraint_type', 'FOREIGN KEY')->count();
-        $this->assertSame(48, $foreignKeys);
+            ->where('constraint_schema', $this->schema)->where('constraint_type', 'FOREIGN KEY')->get();
+        // 新模块会增加外键；逐项检查基线约束保留，不能固定旧版本的外键总数。
+        preg_match_all('/ALTER TABLE\s+(\w+)\s+ADD CONSTRAINT\s+(\w+)\s+FOREIGN KEY\b/', file_get_contents(database_path('schema/newsql-baseline.sql')), $expected, PREG_SET_ORDER);
+        $this->assertNotEmpty($expected);
+        foreach ($expected as $constraint) {
+            $this->assertTrue($foreignKeys->contains(fn ($key) => $key->table_name === $constraint[1] && $key->constraint_name === $constraint[2]), $constraint[1] . '.' . $constraint[2]);
+        }
+        $invalid = DB::selectOne(<<<'SQL'
+            SELECT count(*) AS total FROM pg_constraint c
+            JOIN pg_class source ON source.oid = c.conrelid
+            JOIN pg_namespace source_schema ON source_schema.oid = source.relnamespace
+            JOIN pg_class target ON target.oid = c.confrelid
+            JOIN pg_namespace target_schema ON target_schema.oid = target.relnamespace
+            WHERE c.contype = 'f' AND source_schema.nspname = ?
+              AND (target_schema.nspname <> ? OR NOT c.convalidated)
+            SQL, [$this->schema, $this->schema]);
+        $this->assertSame(0, (int) $invalid->total, 'Foreign keys must be valid and stay inside the test schema.');
         $this->assertSame(1, Artisan::call('local:database-init'));
         $this->assertSame(1, DB::table('users')->count());
     }
