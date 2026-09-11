@@ -1,5 +1,7 @@
 # ── Git / CI ──────────────────────────────────────────
 .git
+**/__pycache__
+**/*.pyc
 .github
 .gitignore
 .gitattributes

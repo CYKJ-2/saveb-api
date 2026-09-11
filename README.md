@@ -1,5 +1,7 @@
 # SAVEB API
 
+旧服务器业务数据迁移（保留新 RBAC）：见 [快照迁移与只读预检](LEGACY-BUSINESS-IMPORT.md)。旧系统继续使用时，先核对字段和约束，再用一致性快照在临时库演练；不要直接覆盖整库。
+
 当前服务器部署采用 **本地 push → 服务器 git pull → 服务器构建镜像并启动 Docker Compose**，无需 GHCR 或 runner。完整命令见 [服务器启动说明](APPLICATION-START.md)；自动发布文档留作后续启用时参考。
 
 **日常只维护根目录 `.env` 和 `nginx.conf`。** 本地与生产共用这两个配置入口；旧 `build/` 和环境切换符号链接已移除。首次配置、生产参数及配置生效方式见 [配置说明](CONFIGURATION.md)，服务器自动发布见 [AUTODEPLOY.md](AUTODEPLOY.md)。
