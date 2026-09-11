@@ -55,12 +55,13 @@ nano .env
 
 默认管理员账号密码为 `super_admin` / `123456`，初始化时自动创建。
 
-在同一终端拉取该提交的生产镜像，随后启动临时迁移容器：
+先确认 GitHub Actions 已成功构建服务器 HEAD 对应的镜像。在同一终端依次执行，拉取和镜像检查均成功后再启动临时迁移容器：
 
 ```bash
 export RELEASE_IMAGE="ghcr.io/cykj-2/saveb-api:sha-$(git rev-parse HEAD)"
 docker pull "$RELEASE_IMAGE"
-docker compose -f docker-compose.server.yml --profile tools run --rm --no-deps --no-build --pull never \
+docker image inspect "$RELEASE_IMAGE" --format '{{.Id}}'
+docker compose -f docker-compose.server.yml --profile tools run --rm --no-deps --pull never \
   migrate php artisan server:database-init --force
 ```
 
@@ -95,3 +96,11 @@ Admin 使用本仓库文档约定的独立 Admin 镜像与配置启动；也可�
 - 旧业务迁移排除新系统的 RBAC 表及 migrations 表；订单、人工调整、规则和真实附件单独迁移。历史操作人 ID/UUID 要先制定映射，不能直接假设与新建管理员一致。
 - API/Admin 可以先运行空业务库。导入业务数据时安排写入暂停和备份；Collector 在导入及规则配置完成后启用。
 - 之前产生的私有快照仅是忽略目录中的历史备份，任何安装/迁移命令都不会读取它，也不需要传到服务器。
+
+## 初始化时出现 PHP 基础镜像下载超时
+
+如果看到 `[migrate internal] load metadata for docker.io/library/php`，说明服务器正在构建应用镜像，初始化命令尚未运行。旧版 server Compose 保留 build，并在未指定 RELEASE_IMAGE 时退回 saveb-api:server；镜像缺失时会触发本机构建。`docker compose run --pull never` 不能替代禁止构建，也不支持 `--no-build`。
+
+当前生产 Compose 已移除 build，并要求明确设置 RELEASE_IMAGE；本地开发 Compose 仍支持构建。首次运行必须先由 Actions 构建并上传对应提交的 GHCR 镜像，在同一终端 export RELEASE_IMAGE、docker pull、docker image inspect 成功后再初始化。正常 runner 发布已经注入镜像 digest，无需更改工作流。
+
+GHCR 如果报 denied/unauthorized，检查登录及 package 权限；如果报 manifest unknown，检查当前提交的 build 是否成功以及镜像标签。不要改用 PHP 基础镜像代替 API 成品镜像。

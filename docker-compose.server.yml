@@ -1,9 +1,7 @@
 name: saveb-api-production
 x-app: &app
-  build:
-    context: .
-    target: production
-  image: ${RELEASE_IMAGE:-saveb-api:server}
+  # 生产只运行 GitHub 构建的镜像；未指定版本时直接报错，不能退回服务器构建。
+  image: ${RELEASE_IMAGE:?Set RELEASE_IMAGE to the pulled GHCR image}
   env_file: ./.env
   restart: unless-stopped
   networks: [business]

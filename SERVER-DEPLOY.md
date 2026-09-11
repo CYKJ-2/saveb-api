@@ -114,7 +114,7 @@ Admin 只需 `ADMIN_PORT=13000`、`DEPLOY_NETWORK=saveb-production`。不要给�
 
 .gitignore 排除真实 .env、配置备份、业务附件和发布状态。automation/、根 Dockerfile 和 Compose 必须提交。发布使用 runner 工作区的精确提交，并将 Compose 与镜像 digest 保存到服务器项目的 releases/；不会覆盖服务器 .env、nginx.conf、config/ 或改变业务卷名。
 
-环境变量 RELEASE_IMAGE 由发布程序注入，普通 server Compose 保留本地镜像名作为手工维护默认值。不要在服务器 .env 固定 RELEASE_IMAGE 或手工启动旧镜像覆盖已发布版本。改 .env/nginx.conf 后通过 Actions 的发布流程重新创建应用容器。基础设施配置变更需独立审查和维护，自动发布不会重建数据库/Redis。
+环境变量 RELEASE_IMAGE 由发布程序注入；API 生产 Compose 要求显式指定已拉取的 GHCR 镜像，不包含 build，也不使用本地镜像默认值。手工首次初始化须先在当前终端 export RELEASE_IMAGE 并成功 docker pull。不要在服务器 .env 固定 RELEASE_IMAGE 或手工启动旧镜像覆盖已发布版本。改 .env/nginx.conf 后通过 Actions 的发布流程重新创建应用容器。基础设施配置变更需独立审查和维护，自动发布不会重建数据库/Redis。
 
 ## 手工数据库备份参考
 
