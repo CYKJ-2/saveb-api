@@ -2,7 +2,7 @@
 
 本次来源为 `saveb-erp-phase4-task2-a823095-20260718-190342-postgres-1` 的 `phase4` 库；目标为 `saveb-infra-postgres-1` 的 `saveb` 库。旧后台继续运行，本次仅导入导出快照中的已有数据，不是停机切换，也不是持续同步。快照开始后提交的变更不保证包含在本次导入中。
 
-当前已完成历史导入方案复查和只读预检工具，**尚未在服务器导出或导入数据**。预检脚本没有写入模式，不能用它代替正式迁移。
+当前已有只读预检和隔离库演练工具。预检脚本没有写入模式；演练脚本只写新建的随机临时数据库，**不能向正式业务库导入**。服务器是否已执行，以实际输出为准。
 
 ## 上次本地导入实际如何处理差异
 
@@ -59,6 +59,40 @@ python3 scripts/legacy_import_preflight.py \
 `blocked_for_mapping` 表示有需处理项；`requires_snapshot_rehearsal` 只表示初步列映射无阻断，**不代表数据已经迁入或所有约束通过**。唯一值重复、CHECK、历史用户关联、附件和序列都要在真实快照演练中验证。
 
 ## 附件和后续正式导入
+
+### 预检无阻断后：数据库演练
+
+把新脚本提交并 push 后，在服务器执行；无需重新构建 Docker 镜像：
+
+```bash
+cd /home/admin_chen/www/saveb-api
+git pull --ff-only origin main &&
+python3 scripts/legacy_import_rehearsal.py \
+  --source-container saveb-erp-phase4-task2-a823095-20260718-190342-postgres-1 \
+  --target-container saveb-infra-postgres-1 \
+  --output "/home/admin_chen/www/backups/legacy-rehearsal-$(date +%Y%m%d-%H%M%S)-$$"
+```
+
+该命令会导出源业务快照及目标全库备份，在**目标 PostgreSQL 容器内**创建 `saveb_rehearsal_src_<随机值>` 和 `saveb_rehearsal_trial_<随机值>` 两个数据库，恢复备份并试导入。需要目标数据库用户具有创建数据库权限；当前官方 PostgreSQL 镜像初始化用户通常具备该权限。脚本失败时不会切换到正式库重试。
+
+演练保护与兼容处理：
+
+1. 来源导出只读；仅导出 38 张业务表及其依赖序列。旧 `orders.visible_order_id` 的 `saveb_visible_order_id_seq` 是独立序列，必须显式包含，不能只靠 `pg_dump -t orders`。
+2. 目标完整备份在隔离库真实恢复，包含现有 RBAC。临时源库不恢复依赖旧 RBAC 的 post-data 约束；业务导入按**目标约束**验证。
+3. 从恢复后的固定源快照重新预检；目标候选业务表非空即停止。导入没有 `TRUNCATE`、`DELETE` 或 CASCADE 清理。
+4. 使用明确列名导入，在一个事务内验证源字段内容、唯一索引、CHECK、业务外键及受保护表。仅历史数据到 `public.users` 的外键允许因孤立引用保留 `NOT VALID`，其他业务外键必须验证通过；报告列出实际未验证项。
+5. 除 RBAC 外，目标所有未参与导入的普通业务表和 Collector 表都做前后校验。业务序列使用事务性的 `ALTER SEQUENCE ... RESTART`，下一个值高于已导入主键、来源已分配值及目标原序列位置；保留未参与迁移的序列。
+6. 生成 `verification.json`、`summary.txt`、`SHA256SUMS`，保留两个临时库供排查。`trial-only.sql` 内有准确的临时数据库名称校验，误传正式库时第一步拒绝；不要删除这个保护来手工导入。
+
+报告只包含计数、结构与校验值。备份、`copy-data/` 及 `private-errors.log` 可能包含业务内容或账号密码哈希，只保留在私有备份目录，不提交 Git、不公开粘贴。失败时先发终端摘要或 `failure.json`，不要直接贴原始错误日志。
+
+演练通过仍然没有迁入正式库，也没有复制附件。下一阶段使用本次已校验的同一快照准备正式导入和附件复制；不重复从不断变化的旧库取数冒充同一次快照。旧后台可以继续使用，演练后新发生的变更不在该快照内。
+
+本地已用 2026-09-07 留存的真实源快照与当前 API 结构做隔离库验证：38 张业务表、23,128 条记录的原字段内容匹配，39 张未参与导入的表保持不变，21 个业务序列校验通过。仅 `background_jobs_creator_fk`、`order_user_overrides_updated_by_user_fk`、`workflow_events_actor_fk` 保留历史用户引用兼容状态。此结果是本地回归证据，不是本次服务器数据量或迁移结果；本次没有计入旧 Knex 与历史备份表，所以总数不同于早期 45 表导入记录。
+
+失败场景也已验证：仅在隔离测试库故意添加与旧数据冲突的 `client_order_id` 唯一索引，导入按预期失败；事务回滚后 38 张候选表仍为空，受保护表、外键定义和序列状态保持原样。历史用户引用统计查询已验证能返回孤立引用数量，不输出具体用户 UUID。
+
+### 附件
 
 已确认两个独立附件卷：
 
