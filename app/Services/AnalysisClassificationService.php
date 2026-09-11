@@ -42,6 +42,11 @@ class AnalysisClassificationService
         $this->suppliers = $suppliers;
         $this->unclassifiedBrandId = $unclassifiedBrandId;
         foreach ($rules as $rule) {
+            // 供应关系仍待确认的行只保留来源记录，不参与品牌或品类的自动映射。
+            // “品牌待确认”不在此列：供应关系已确认时仍可匹配品类。
+            if ($rule['relationship_pending'] ?? false) {
+                continue;
+            }
             if ($rule['supplier_name'] ?? null) {
                 $this->supplierRules[AnalysisWorkbookParser::key($rule['supplier_name'])][] = $rule;
             }

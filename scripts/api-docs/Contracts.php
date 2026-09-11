@@ -76,6 +76,7 @@ function contract(string $controller, string $method, string $verb, array $defau
         $result['notes'][] = '仅使用采购集成表及供应商字典，不关联收单或订单系统。金额固定 CNY，以已采购且价格有效的每行实际成交价格直接汇总，不推算数量。金额为两位小数字符串，缺失价格保留 null。趋势使用发起采购日期，缺日期金额只纳入无日期限制的总览。';
         $result['notes'][] = '未传日期为全部已导入历史。品牌代号与供应商联合匹配品类；品牌待确认统一待分类。首复购按规范化客户名和完整有效采购历史判断：最早采购日所有行是首购，后续日期是复购；缺名或日期为未知。筛选不改变首次日期。';
         if ($method === 'report') {
+            $result['notes'][] = '交叉单元格 share = amount / 当前筛选总成交金额 × 100。行列合计复用相同快照下 distributions 对应维度的 amount、rows、share，总合计使用 summary.amount 与 eligible_rows。品类×价格区间使用 category/price_band；首复购×品牌使用 customer_type/brand。保留待分类和未知组，总额为零时占比为零，负金额保留符号，四舍五入后的占比相加可能不等于 100%。';
             $result['notes'][] = '页面默认传入北京时间当月起止日期。概览、排行及交叉按原日期查询；只有趋势日期会扩展：grain=month 到对应完整自然年，grain=day 到对应完整自然月。品牌、品类等条件保留。trend.startDate/endDate 返回实际趋势范围；无数据月份仍保留坐标。';
         }
         if ($method === 'import') {

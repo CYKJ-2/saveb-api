@@ -138,6 +138,29 @@ class AnalysisTest extends TestCase
         $this->assertSame('BV', $rows[2]->brand_raw);
     }
 
+    public function test_unconfirmed_supplier_relationships_do_not_override_confirmed_mappings(): void
+    {
+        $header = ['A' => '品牌', 'B' => '品牌', 'C' => '代号', 'D' => '供应商优选1', 'E' => '确认状态'];
+        $this->import($this->xlsx([
+            '珠宝' => [$header, ['A' => '宝格丽', 'B' => 'BVLGARI', 'C' => 'BV', 'D' => '珠宝商']],
+            '包包' => [$header, ['A' => '待确认', 'C' => 'BV', 'D' => '珠宝商', 'E' => '品牌/供应关系待确认']],
+            '衣服' => [$header, ['A' => '待确认', 'C' => 'NEW', 'D' => '新商家', 'E' => '品牌/供应关系待确认'],
+                ['A' => '待确认', 'C' => 'CONFIRMED', 'D' => '衣商', 'E' => '品牌待确认']],
+        ]), 'suppliers');
+        $this->import($this->xlsx(['2026.09' => $this->purchaseRows([
+            ['D' => 'BV', 'F' => '珠宝商'], ['D' => 'BV', 'F' => '未登记供应商'],
+            ['D' => 'NEW', 'F' => '新商家'], ['D' => 'CONFIRMED', 'F' => '衣商'],
+        ])]));
+        $rows = AnalysisProcurementRow::where('is_current', true)->orderBy('row_number')->get();
+        $this->assertSame('jewelry', $rows[0]->category_code);
+        $this->assertSame('BVLGARI', $rows[0]->brand_name_en);
+        $this->assertSame('BVLGARI', $rows[1]->brand_name_en);
+        $this->assertSame('unclassified', $rows[2]->category_code);
+        $this->assertSame('待分类', $rows[2]->brand_name);
+        $this->assertSame('clothing', $rows[3]->category_code);
+        $this->assertSame('pending', $rows[3]->brand_match_status);
+    }
+
     public function test_daily_upload_replaces_only_current_month_and_preserves_snapshot_exports(): void
     {
         $first = $this->import($this->xlsx([
@@ -208,6 +231,75 @@ class AnalysisTest extends TestCase
         $this->assertSame(2, $customers['total']);
         $this->assertNotEmpty($report['crosses']['brand_category']);
         $this->assertNotEmpty($report['crosses']['category_price']);
+    }
+
+    public function test_cross_shares_and_dimension_totals_use_the_same_filtered_amount(): void
+    {
+        $header = ['A' => '中文品牌', 'B' => '英文品牌', 'C' => '代号', 'D' => '供应商'];
+        $this->import($this->xlsx([
+            '包包' => [$header, ['A' => '香奈儿', 'B' => 'CHANEL', 'C' => 'CH', 'D' => '包商']],
+            '衣服' => [$header, ['A' => '耐克', 'B' => 'NIKE', 'C' => 'NI', 'D' => '衣商']],
+        ]), 'suppliers');
+        $this->import($this->xlsx([
+            '2026.08' => $this->purchaseRows([['B' => '2026-08-01', 'I' => 'Alex', 'H' => '1000']]),
+            '2026.09' => $this->purchaseRows([
+                ['D' => 'CH', 'F' => '包商', 'I' => 'Alex', 'H' => '100.10'],
+                ['D' => 'NI', 'F' => '衣商', 'I' => 'Beth', 'H' => '200.20'],
+                ['D' => '待确认', 'F' => '未知供应商', 'I' => '', 'H' => '99.70'],
+                ['H' => '99999', 'J' => '未采购'], ['H' => '#REF!'],
+            ]),
+        ]), 'procurement', 'initialize');
+
+        $query = '/api/workbench/analysis/report?startDate=2026-09-01&endDate=2026-09-30';
+        $report = $this->getJson($query)->assertOk()->json('data');
+        $this->assertSame('400.00', $report['summary']['amount']);
+        $this->assertSame(3, $report['summary']['eligible_rows']);
+        foreach (['category_price' => ['category', 'price_band'], 'customer_brand' => ['customer_type', 'brand']] as $cross => $dimensions) {
+            $cells = collect($report['crosses'][$cross]);
+            $this->assertSame('400.00', $cells->reduce(fn ($sum, $cell) => bcadd($sum, $cell['amount'], 2), '0.00'));
+            foreach (['x', 'y'] as $axisIndex => $axis) {
+                foreach ($report['distributions'][$dimensions[$axisIndex]] as $total) {
+                    $group = $cells->where($axis, $total['key']);
+                    $this->assertSame($total['amount'], $group->reduce(fn ($sum, $cell) => bcadd($sum, $cell['amount'], 2), '0.00'));
+                    $this->assertSame($total['rows'], $group->sum('rows'));
+                }
+            }
+        }
+        $customers = collect($report['crosses']['customer_brand'])->keyBy('x');
+        $this->assertSame('25.03', $customers['returning']['share']);
+        $this->assertSame('50.05', $customers['first']['share']);
+        $this->assertSame('24.93', $customers['unknown']['share']);
+        $this->assertSame('待分类', $customers['unknown']['y_zh']);
+
+        // A brand filter changes the denominator, but never resets the customer's first date.
+        $filtered = $this->getJson($query . '&brand_id=' . $customers['returning']['y'])->assertOk()->json('data');
+        $this->assertSame('100.10', $filtered['summary']['amount']);
+        $this->assertSame('100.00', $filtered['crosses']['category_price'][0]['share']);
+        $this->assertSame('100.00', $filtered['crosses']['customer_brand'][0]['share']);
+        $this->assertSame('returning', $filtered['crosses']['customer_brand'][0]['x']);
+    }
+
+    public function test_cross_shares_handle_zero_totals_and_negative_amounts(): void
+    {
+        $this->import($this->xlsx(['2026.09' => $this->purchaseRows([
+            ['I' => 'Credit', 'H' => '100'], ['I' => 'Credit', 'H' => '-100'],
+            ['I' => 'Zero', 'H' => '0'], ['I' => 'Sale', 'H' => '100'],
+        ])]));
+        $query = '/api/workbench/analysis/report?startDate=2026-09-01&endDate=2026-09-30';
+        foreach (['Credit', 'Zero', 'No such customer'] as $keyword) {
+            $report = $this->getJson($query . '&keyword=' . urlencode($keyword))->assertOk()->json('data');
+            $this->assertSame('0.00', $report['summary']['amount']);
+            foreach (['category_price', 'customer_brand'] as $cross) {
+                foreach ($report['crosses'][$cross] as $cell) {
+                    $this->assertSame('0.00', $cell['share']);
+                }
+            }
+        }
+        $report = $this->getJson($query)->assertOk()->json('data');
+        $this->assertSame('100.00', $report['summary']['amount']);
+        $bands = collect($report['crosses']['category_price'])->keyBy('y');
+        $this->assertSame('-100.00', $bands['negative']['share']);
+        $this->assertSame('200.00', $bands['100-299.99']['share']);
     }
 
     public function test_trend_expands_calendar_periods_without_expanding_other_statistics(): void

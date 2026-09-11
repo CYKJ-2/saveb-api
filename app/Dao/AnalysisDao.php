@@ -148,7 +148,7 @@ class AnalysisDao
      * @param array $filters 统一筛选条件
      * @param string $left 固定第一维度名
      * @param string $right 固定第二维度名
-     * @return array 两个维度的主键和中英文名称、记录数和两位金额
+     * @return array 两个维度的主键和中英文名称、记录数、两位 CNY 金额及占筛选总额的百分比；总额为零时占比为 0.00
      */
     public function cross(array $filters, string $left, string $right): array
     {
@@ -157,7 +157,8 @@ class AnalysisDao
 
         return $this->query($filters)
             ->selectRaw("$x AS x, $xz AS x_zh, $xe AS x_en, $y AS y, $yz AS y_zh, $ye AS y_en,
-                COUNT(*) AS rows, SUM(r.analysis_amount)::numeric(22,2)::text AS amount")
+                COUNT(*) AS rows, SUM(r.analysis_amount)::numeric(22,2)::text AS amount,
+                COALESCE(ROUND(SUM(r.analysis_amount) * 100 / NULLIF(SUM(SUM(r.analysis_amount)) OVER (), 0), 2), 0)::numeric(22,2)::text AS share")
             ->groupByRaw(implode(', ', array_unique([$x, $xz, $xe, $y, $yz, $ye])))
             ->orderByRaw('SUM(r.analysis_amount) DESC')->orderBy('x')->orderBy('y')->get()->all();
     }

@@ -242,7 +242,7 @@ function schemas(): array
     $s['AnalysisPoint'] = shape('period:s:YYYY-MM-DD 或 YYYY-MM;rows:i:有效采购行数;amount:s:CNY 两位金额');
     $s['AnalysisDistribution'] = shape('key:id:分组主键或枚举;name_zh:s:中文名称;name_en:s:英文名称;rows:i:有效采购行数;amount:s:CNY 两位金额;share:s:占全部筛选金额的百分比，两位小数');
     $s['AnalysisTrend'] = shape('grain:s:day 或 month;startDate:date:趋势实际起始日，日粒度扩展至月初，月粒度扩展至年初;endDate:date:趋势实际结束日，日粒度扩展至月末，月粒度扩展至年末;periods:[]s:完整月份或日期轴，即使无数据也保留;points:[]AnalysisPoint:扩展日期范围内的成交汇总，其他业务筛选仍生效');
-    $s['AnalysisCrossCell'] = shape('x:id:行维度键;x_zh:s:行中文名;x_en:s:行英文名;y:id:列维度键;y_zh:s:列中文名;y_en:s:列英文名;rows:i:有效采购记录数;amount:s:CNY 两位金额');
+    $s['AnalysisCrossCell'] = shape('x:id:行维度键;x_zh:s:行中文名;x_en:s:行英文名;y:id:列维度键;y_zh:s:列中文名;y_en:s:列英文名;rows:i:有效采购记录数;amount:s:CNY 两位金额;share:s:占当前筛选总成交金额的百分比，两位小数字符串，总额为零时为 0.00');
     $s['AnalysisCrosses'] = shape('brand_category:[]AnalysisCrossCell:品牌乘品类;category_price:[]AnalysisCrossCell:品类乘价格区间;customer_brand:[]AnalysisCrossCell:首复购乘品牌;customer_category:[]AnalysisCrossCell:首复购乘品类');
     $s['AnalysisDistributions'] = shape('brand:[]AnalysisDistribution:品牌排行;category:[]AnalysisDistribution:品类排行;supplier:[]AnalysisDistribution:供应商;price_band:[]AnalysisDistribution:实际价格区间;purchase_method:[]AnalysisDistribution:采购方式;customer_type:[]AnalysisDistribution:首购复购未知');
     $s['AnalysisReport'] = shape('summary:AnalysisSummary:总览及质量;trend:AnalysisTrend:日期趋势;distributions:AnalysisDistributions:维度分布;crosses:AnalysisCrosses:四组交叉;currency:s:固定 CNY;metric_basis:s:purchased_procurement_actual_price;customer_basis:s:normalized_name_first_procurement_day');
