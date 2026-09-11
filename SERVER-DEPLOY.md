@@ -155,3 +155,32 @@ ssh -N -o ExitOnForwardFailure=yes -L 13000:127.0.0.1:13000 admin_chen@192.168.1
 核对主机指纹并按提示认证，保持窗口打开，浏览器访问 http://127.0.0.1:13000/dashboard/overview 。测试阶段 API 的 APP_URL、FRONTEND_URL、CORS_ALLOWED_ORIGINS 可使用 http://127.0.0.1:13000，正式入口启用后改为实际 URL。隧道不需要修改 authorized_keys；直接访问服务器内网 IP 的 13000 端口在当前回环绑定下不可用。
 
 正式多人访问的反向代理/域名另行配置，不修改宿主机现有站点。所有本项目服务器文件放在 /home/admin_chen/www，Docker 按正常机制写 /var/lib/docker；不操作旧 ERP、禅道的容器、数据卷或全局清理命令。
+
+## Docker Hub 超时：切换基础设施镜像来源
+
+`docker-compose.infra.yml` 支持在 API 根目录 `.env` 中设置镜像地址；默认仍是 Docker Hub。服务器无法连接 Docker Hub 时，可以将这两个字段改成 Docker 官方发布在 AWS ECR Public 的镜像：
+
+```dotenv
+INFRA_POSTGRES_IMAGE=public.ecr.aws/docker/library/postgres:16-alpine
+INFRA_REDIS_IMAGE=public.ecr.aws/docker/library/redis:7-alpine
+```
+
+这两个参数只影响生产 PostgreSQL 和两个 Redis 服务。本地开发 Compose、GitHub 云端构建、应用 GHCR 镜像来源不变。不修改 Docker 全局镜像源、不重启 Docker，不改变数据库卷或网络名称。ECR Public 是另一条下载路径，仍需确认服务器网络能够访问。
+
+首次启动基础设施时，在服务器执行以下命令；上一条成功后再执行下一条：
+
+```bash
+cd /home/admin_chen/www/saveb-api
+git pull --ff-only
+# 编辑现有 .env 的上述两个字段，不要覆盖其他凭据。
+nano .env
+docker compose -f docker-compose.infra.yml config --quiet
+docker compose -f docker-compose.infra.yml config --images
+docker compose -f docker-compose.infra.yml pull
+docker compose -f docker-compose.infra.yml up -d --wait --pull never
+docker compose -f docker-compose.infra.yml ps
+```
+
+如果 ECR Public 也超时，可继续使用已准备的离线镜像包：校验 SHA256 后 `docker load`，将上述两个参数分别设回 `postgres:16-alpine`、`redis:7-alpine`，再用 `up -d --wait --pull never` 启动。不要通过清理数据卷解决网络问题。已有运行中的基础设施再次执行 `up` 时，镜像改变可能重建对应容器，应安排维护时间。
+
+官方来源：[Docker Official Images on ECR Public](https://aws.amazon.com/blogs/containers/docker-official-images-now-available-on-amazon-elastic-container-registry-public/)。

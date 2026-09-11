@@ -2,7 +2,7 @@ name: saveb-infra
 # Provision once. Application releases never recreate or remove these database volumes.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${INFRA_POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_DATABASE:?required}
@@ -18,7 +18,7 @@ services:
       timeout: 5s
       retries: 20
   redis:
-    image: redis:7-alpine
+    image: ${INFRA_REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
@@ -33,7 +33,7 @@ services:
       timeout: 5s
       retries: 20
   collector-redis:
-    image: redis:7-alpine
+    image: ${INFRA_REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes: [collector-redis:/data]
