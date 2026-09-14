@@ -235,27 +235,36 @@ def copy_columns(source_table, target_table):
     return names, expressions
 
 
-def build_trial_sql(database, source, target, expected, protected, sequences, copy_dir):
+def build_trial_sql(database, source, target, expected, protected, sequences, copy_dir, reset_tables=None):
     # SQL 自身也绑定随机临时库名；即使被误传给正式 psql，第一句就拒绝。
     if not re.fullmatch(r"saveb_rehearsal_trial_[a-f0-9]{12}", database):
         raise ValueError("Invalid trial database.")
-    return build_empty_database_import_sql(database, source, target, expected, protected, sequences, copy_dir)
+    return build_empty_database_import_sql(database, source, target, expected, protected, sequences, copy_dir, reset_tables)
 
 
-def build_empty_database_import_sql(database, source, target, expected, protected, sequences, copy_dir):
-    """生成绑定具体数据库的空业务表导入事务；正式入口另行校验演练材料及目标。"""
+def build_empty_database_import_sql(database, source, target, expected, protected, sequences, copy_dir, reset_tables=None):
+    """默认仅空业务表；专用替换入口可传审查清单，在同一事务内重置后导入。"""
     tables = {t["name"]: t for t in source["tables"]}
     targets = {t["name"]: t for t in target["tables"]}
     selected = sorted(tables)
     if set(selected) != BUSINESS:
         raise ValueError("Snapshot must contain exactly the reviewed 38 business tables.")
+    if reset_tables is not None:
+        from legacy_replace_plan import validate_reset_tables
+        validate_reset_tables(reset_tables)
+        if {(p['schema'], p['table']) for p in protected} & {(p['schema'], p['table']) for p in reset_tables}:
+            raise ValueError('Replacement overlaps protected tables.')
     foreign_keys = [c for c in target["constraints"] if c["table_name"] in BUSINESS and c["type"] == "f"]
     sql = [r"\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL TIME ZONE 'UTC';", "SET LOCAL search_path=public,pg_catalog;", "SET LOCAL lock_timeout='5s';",
            "DO $guard$ BEGIN IF current_database() <> " + qs(database)
            + " THEN RAISE EXCEPTION 'Import database mismatch'; END IF; END $guard$;"]
-    sql.append("LOCK TABLE " + ",".join("public." + qi(n) for n in selected) + " IN ACCESS EXCLUSIVE MODE;")
+    locked = [full_name(p['schema'], p['table']) for p in reset_tables] if reset_tables else ["public." + qi(n) for n in selected]
+    sql.append("LOCK TABLE " + ",".join(locked) + " IN ACCESS EXCLUSIVE MODE;")
     if protected:
         sql.append("LOCK TABLE " + ",".join(full_name(p["schema"], p["table"]) for p in protected) + " IN SHARE MODE;")
+    if reset_tables:
+        # 与 COPY、内容校验在同一事务。RESTRICT 遇到清单外依赖立即拒绝，不扩大清理范围。
+        sql.append("TRUNCATE TABLE " + ",".join(locked) + " CONTINUE IDENTITY RESTRICT;")
     for name in selected:
         sql.append("DO $empty$ BEGIN IF EXISTS(SELECT 1 FROM public." + qi(name)
                    + ") THEN RAISE EXCEPTION 'Nonempty business table: " + name + "'; END IF; END $empty$;")
@@ -285,6 +294,11 @@ def build_empty_database_import_sql(database, source, target, expected, protecte
         check = fingerprint_sql(item["schema"], item["table"])
         sql.append("DO $protected$ BEGIN IF (" + check + ")::jsonb IS DISTINCT FROM "
                    + qs(json.dumps(item["fingerprint"])) + "::jsonb THEN RAISE EXCEPTION 'Protected table changed'; END IF; END $protected$;")
+    for item in reset_tables or []:
+        if item['schema'] == 'public' and item['table'] in BUSINESS:
+            continue
+        sql.append("DO $reset$ BEGIN IF EXISTS(SELECT 1 FROM " + full_name(item['schema'], item['table'])
+                   + ") THEN RAISE EXCEPTION 'Replacement reset table not empty'; END IF; END $reset$;")
     # ALTER SEQUENCE RESTART 为事务性操作；不用不可回滚的 setval。
     for item in sequences:
         sql.append("ALTER SEQUENCE " + full_name(item["schema"], item["sequence"])
@@ -301,7 +315,7 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def rehearse(source_live, target_live, output):
+def rehearse(source_live, target_live, output, replace_business=False):
     run_id = uuid.uuid4().hex[:12]
     src_name, trial_name = "saveb_rehearsal_src_" + run_id, "saveb_rehearsal_trial_" + run_id
     src = Database(target_live.container, target_live.log, src_name, writable=True)
@@ -310,7 +324,8 @@ def rehearse(source_live, target_live, output):
              "source_container": source_live.container, "target_container": target_live.container,
              "source_database": source_live.metadata()["database"], "target_database": target_live.metadata()["database"],
              "staging_database": src_name, "trial_database": trial_name,
-             "live_target_written": False, "attachments_copied": False}
+             "live_target_written": False, "attachments_copied": False,
+             "import_mode": "replace-business" if replace_business else "empty-business"}
     save_json(output / "state.json", state)
     print("1/6 导出旧库 38 张业务表快照，并备份新库。", flush=True)
     meta = source_live.metadata()
@@ -326,15 +341,26 @@ def rehearse(source_live, target_live, output):
     trial.create()
     trial.restore(output / "target-before.dump")
     source, target = src.metadata(), trial.metadata()
+    reset_tables = None
+    if replace_business:
+        from legacy_replace_plan import replacement_plan
+        plan = replacement_plan(inventory(trial))
+        reset_tables = plan['reset']
+        save_json(output / 'replacement-plan.json', plan)
     save_json(output / "source-structure.json", source)
     save_json(output / "target-structure.json", target)
     compatibility = compare(source, target, row_counts(src, source), row_counts(trial, target), null_counts(src, source, target))
+    if replace_business:
+        compatibility['replacement_rows'] = [b for b in compatibility['blockers'] if b['reason'] == 'target_has_business_rows']
+        compatibility['blockers'] = [b for b in compatibility['blockers'] if b['reason'] != 'target_has_business_rows']
     save_json(output / "compatibility.json", compatibility)
     if compatibility["blockers"]:
         raise ValueError("Snapshot compatibility blocked; see compatibility.json.")
     print("3/6 记录受保护表及序列，并生成带明确列名的 COPY 数据。", flush=True)
     protected = []
     for item in inventory(trial):
+        if reset_tables is not None and item in reset_tables:
+            continue
         if item["schema"] == "public" and item["table"] in BUSINESS:
             continue
         protected.append(dict(item, fingerprint=trial.sql(fingerprint_sql(item["schema"], item["table"]) + ";")[0]))
@@ -356,7 +382,7 @@ def rehearse(source_live, target_live, output):
     container_dir = "/tmp/saveb-rehearsal-" + run_id
     subprocess.run(["docker", "cp", str(data_dir), target_live.container + ":" + container_dir], check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    sql = build_trial_sql(trial_name, source, target, expected, protected, sequences, container_dir)
+    sql = build_trial_sql(trial_name, source, target, expected, protected, sequences, container_dir, reset_tables)
     (output / "trial-only.sql").write_text(sql, encoding="utf-8")
     save_json(output / "expected-business.json", expected)
     save_json(output / "protected-before.json", protected)
@@ -389,6 +415,7 @@ def rehearse(source_live, target_live, output):
     if any(f.get("reference_schema") != "public" or f.get("reference_table") != "users" for f in unresolved):
         raise ValueError("Unvalidated business foreign key.")
     report = {"status": "database_rehearsal_passed", "business": verified,
+              "import_mode": state['import_mode'],
               "rows": sum(t["rows"] for t in verified), "protected_tables_unchanged": len(protected),
               "business_sequences_verified": len(sequences), "historical_user_constraints": unresolved,
               "historical_user_reference_counts": historical_reference_counts(trial),

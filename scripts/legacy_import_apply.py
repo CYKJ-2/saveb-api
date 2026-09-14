@@ -35,7 +35,7 @@ def inspect(name):
     return json.loads(docker('inspect', name))[0]
 
 
-def load_materials(root):
+def load_materials(root, expected_mode='empty-business'):
     checks = {}
     for line in (root / 'SHA256SUMS').read_text(encoding='utf-8').splitlines():
         digest, name = line.split('  ', 1)
@@ -48,10 +48,14 @@ def load_materials(root):
     required = {'source-business.dump', 'target-before.dump', 'source-structure.json',
                 'target-structure.json', 'sequence-plan.json', 'expected-business.json', 'verification.json'}
     required |= {'copy-data/' + t + '.copy' for t in BUSINESS}
+    if expected_mode == 'replace-business':
+        required.add('replacement-plan.json')
     if not required <= checks.keys():
         raise ValueError('Incomplete rehearsal materials.')
     state = json.loads((root / 'state.json').read_text(encoding='utf-8'))
     report = json.loads((root / 'verification.json').read_text(encoding='utf-8'))
+    if state.get('import_mode', 'empty-business') != expected_mode or report.get('import_mode', 'empty-business') != expected_mode:
+        raise ValueError('Rehearsal mode mismatch; empty import and replacement materials cannot be mixed.')
     if state['status'] != 'database_rehearsal_passed' or report['status'] != 'database_rehearsal_passed':
         raise ValueError('Rehearsal has not passed.')
     if {t['table'] for t in report['business']} != BUSINESS or not all(t['match'] for t in report['business']):
@@ -71,7 +75,7 @@ def attachment_volume(container):
 
 
 def attachment_run(image, old_volume, new_volume, output, mode):
-    new_mount = 'type=volume,src=' + new_volume + ',dst=/new' + (',readonly' if mode == 'check' else '')
+    new_mount = 'type=volume,src=' + new_volume + ',dst=/new' + (',readonly' if mode in ('check', 'replace-check') else '')
     # 使用服务器已运行 API 的镜像 ID；不访问 GHCR，不拉镜像，不执行应用入口。
     return docker('run', '--rm', '--pull', 'never', '--network', 'none', '--user', '0',
         '--entrypoint', 'php', '--mount', 'type=volume,src=' + old_volume + ',dst=/old,readonly',
@@ -104,7 +108,7 @@ def resume_services(services):
 
 
 def commit_sql(db, sql, output):
-    # 此处是唯一正式数据库写入口；调用前必须完成 --apply、目标身份、空库、备份和附件检查。
+    # 唯一正式数据库写入口；调用前完成显式 apply、目标/模式、演练、备份和附件检查。
     script = AUTH + 'db_name="$1"\nexec psql -X -qAt -v ON_ERROR_STOP=1 -U "$db_user" -d "$db_name"'
     with (output / 'private-errors.log').open('ab') as errors:
         result = subprocess.run(['docker', 'exec', '-i', db.container, 'sh', '-c', script, 'apply', db.database],
@@ -113,9 +117,9 @@ def commit_sql(db, sql, output):
         raise RuntimeError('Import command failed; check database state before retrying (connection failures can make commit status uncertain).')
 
 
-def apply_snapshot(args, output):
+def apply_snapshot(args, output, replace_business=False):
     root = args.snapshot.resolve()
-    state = load_materials(root)
+    state = load_materials(root, 'replace-business' if replace_business else 'empty-business')
     if state['target_database'] != args.expected_database or state['target_container'] != args.target_container:
         raise ValueError('Target differs from the successful rehearsal.')
     if state['source_container'] == args.target_container:
@@ -128,7 +132,15 @@ def apply_snapshot(args, output):
     if not same_structure(target, current):
         raise ValueError('Target structure changed since rehearsal; repeat rehearsal against the new structure.')
     current_counts = row_counts(db, current)
-    if any(current_counts[n] for n in BUSINESS):
+    reset_tables = None
+    if replace_business:
+        from legacy_replace_plan import replacement_plan
+        plan = replacement_plan(inventory(db))
+        if plan != json.loads((root / 'replacement-plan.json').read_text(encoding='utf-8')):
+            raise ValueError('Replacement inventory changed since rehearsal.')
+        reset_tables = plan['reset']
+        save_json(output / 'replacement-plan.json', plan)
+    if not replace_business and any(current_counts[n] for n in BUSINESS):
         raise ValueError('Target already has business data; refusing full import. Do not clear it to bypass this check.')
     source_api, target_api = inspect(args.source_api_container), inspect(args.target_api_container)
     source_db_info = inspect(state['source_container'])
@@ -150,14 +162,17 @@ def apply_snapshot(args, output):
     save_json(output / 'attachments-manifest.json', manifest)
     shutil.copyfile(Path(__file__).with_name('legacy_import_attachments.php'), output / 'attachments.php')
     print('检查旧附件和目标同路径文件，暂不写入。', flush=True)
+    check_mode = 'replace-check' if replace_business else 'check'
+    copy_mode = 'replace-copy' if replace_business else 'copy'
     try:
-        attachment_run(target_api['Image'], old_volume, new_volume, output, 'check')
+        attachment_run(target_api['Image'], old_volume, new_volume, output, check_mode)
     except RuntimeError:
         raise RuntimeError('Attachment check failed; see attachments-check.json. Services were not stopped.') from None
     status = {'status': 'checked', 'database_committed': False, 'snapshot': str(root),
               'target_container': db.container, 'target_database': db.database,
               'old_attachment_volume': old_volume, 'new_attachment_volume': new_volume,
               'stopped_services': []}
+    status['import_mode'] = 'replace-business' if replace_business else 'empty-business'
     save_json(output / 'apply-state.json', status)
     if not args.apply:
         print('正式导入前检查通过；没有停止服务、复制附件或写入正式库。使用相同参数加 --apply 执行。')
@@ -174,8 +189,10 @@ def apply_snapshot(args, output):
     # 暂停后重新核对；保留最新 RBAC 和令牌，不能拿演练时的 RBAC 覆盖现在的值。
     current = db.metadata()
     current_counts = row_counts(db, current)
-    if not same_structure(target, current) or any(current_counts[n] for n in BUSINESS):
+    if not same_structure(target, current) or (not replace_business and any(current_counts[n] for n in BUSINESS)):
         raise ValueError('Target changed before the import window.')
+    if replace_business and replacement_plan(inventory(db)) != plan:
+        raise ValueError('Replacement inventory changed before the import window.')
     print('备份当前新库与新附件卷。', flush=True)
     db.dump(output / 'target-immediately-before.dump')
     docker('run', '--rm', '--pull', 'never', '--network', 'none', '--entrypoint', 'tar',
@@ -188,7 +205,8 @@ def apply_snapshot(args, output):
     (output / 'BACKUP-SHA256SUMS').write_text(''.join(sha256(output/n)+'  '+n+'\n' for n in
         ['target-immediately-before.dump','attachments-before.tar.gz']), encoding='utf-8')
     protected = [dict(p, fingerprint=db.sql(fingerprint_sql(p['schema'], p['table']) + ';')[0])
-                 for p in inventory(db) if p['schema'] != 'public' or p['table'] not in BUSINESS]
+                 for p in inventory(db) if (p not in reset_tables if reset_tables is not None
+                                            else p['schema'] != 'public' or p['table'] not in BUSINESS)]
     original_sequences = sequence_inventory(db)
     sequences = json.loads((root / 'sequence-plan.json').read_text(encoding='utf-8'))
     for plan in sequences:
@@ -200,13 +218,14 @@ def apply_snapshot(args, output):
             raise ValueError('Business sequence exhausted.')
     save_json(output / 'protected-before.json', protected)
     save_json(output / 'sequences-before.json', original_sequences)
-    print('按快照 SHA256 复制附件；已有同内容文件保留，冲突不覆盖。', flush=True)
-    attachment_run(target_api['Image'], old_volume, new_volume, output, 'copy')
+    print('按快照 SHA256 复制附件；' + ('已备份新附件，同路径不同内容以旧快照为准。' if replace_business
+          else '已有同内容文件保留，冲突不覆盖。'), flush=True)
+    attachment_run(target_api['Image'], old_volume, new_volume, output, copy_mode)
     status['status'] = 'attachments_copied'
     save_json(output / 'apply-state.json', status)
     data_dir = '/tmp/saveb-formal-import-' + uuid.uuid4().hex[:12]
     docker('cp', str(root / 'copy-data'), db.container + ':' + data_dir)
-    sql = build_empty_database_import_sql(db.database, source, current, expected, protected, sequences, data_dir)
+    sql = build_empty_database_import_sql(db.database, source, current, expected, protected, sequences, data_dir, reset_tables)
     # 校验材料复制到容器后的字节，避免复制损坏后仍执行。
     for name in BUSINESS:
         digest = docker('exec', db.container, 'sha256sum', data_dir + '/' + name + '.copy').split()[0]
@@ -230,12 +249,20 @@ def apply_snapshot(args, output):
     references = historical_reference_counts(db)
     save_json(output / 'verification.json', {'business_tables': len(BUSINESS), 'rows': sum(v['rows'] for v in expected.values()),
         'protected_tables_unchanged': len(protected), 'historical_user_references': references,
-        'business_sequences_verified': len(sequences), 'attachments': json.loads((output/'attachments-copy.json').read_text(encoding='utf-8'))})
+        'business_sequences_verified': len(sequences), 'import_mode': status['import_mode'],
+        'attachments': json.loads((output/('attachments-' + copy_mode + '.json')).read_text(encoding='utf-8'))})
     print('导入校验通过，恢复本次暂停的服务并等待健康检查。', flush=True)
-    resume_services(services)
+    restored = services
+    if replace_business:
+        from legacy_replace_plan import startup_services
+        restored = startup_services(services)
+        status['workers_kept_stopped'] = [s for s in services if s not in restored]
+    resume_services(restored)
     status['status'] = 'complete'
     save_json(output / 'apply-state.json', status)
-    print('正式导入完成：38 张业务表；RBAC 保留；附件已校验；新服务已恢复。材料目录: ' + str(output))
+    print('正式导入完成：38 张业务表；RBAC 保留；附件已校验；' +
+          ('API 接口已恢复，API worker 和 Collector 任务进程保持停止，验收后再启动。' if replace_business else '新服务已恢复。') +
+          '材料目录: ' + str(output))
 
 
 def main():

@@ -1,12 +1,15 @@
 <?php
 
 // 仅在迁移辅助容器中使用：/old 只读，/new 为新附件卷，/work 为私有材料目录。
-// 按数据库记录的 SHA256 复制，不覆盖冲突，不跟随越出附件卷的路径或目标符号链接。
+// 按 SHA256 复制；普通模式拒绝冲突，替换模式须由调用方先备份新卷。
+// 两种模式都不跟随越出附件卷的路径或目标符号链接。
 [$script, $mode, $manifestPath, $reportPath] = $argv + [null, null, null, null];
-if (!in_array($mode, ['check', 'copy'], true) || !$manifestPath || !$reportPath) {
+if (!in_array($mode, ['check', 'copy', 'replace-check', 'replace-copy'], true) || !$manifestPath || !$reportPath) {
     exit(64);
 }
 $manifest = json_decode(file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
+$copyMode = in_array($mode, ['copy', 'replace-copy'], true);
+$replaceMode = in_array($mode, ['replace-check', 'replace-copy'], true);
 $report = ['mode' => $mode, 'files' => [], 'errors' => 0, 'copied' => 0, 'already_present' => 0];
 $seen = [];
 foreach ($manifest as $entry) {
@@ -41,7 +44,7 @@ foreach ($manifest as $entry) {
             if (is_link($parent) || (file_exists($parent) && !is_dir($parent))) {
                 throw new RuntimeException('unsafe_target_directory');
             }
-            if ($mode === 'copy' && !is_dir($parent)) {
+            if ($copyMode && !is_dir($parent)) {
                 if (!mkdir($parent, 02770) || !chown($parent, 'www-data') || !chgrp($parent, 'www-data')) {
                     throw new RuntimeException('cannot_create_target_directory');
                 }
@@ -50,13 +53,15 @@ foreach ($manifest as $entry) {
         if (is_link($target)) {
             throw new RuntimeException('target_symlink');
         }
-        if (file_exists($target)) {
-            if (!is_file($target) || !hash_equals($hash, hash_file('sha256', $target))) {
-                throw new RuntimeException('target_content_conflict');
-            }
+        $targetExists = file_exists($target);
+        $sameContent = $targetExists && is_file($target) && hash_equals($hash, hash_file('sha256', $target));
+        if ($targetExists && !$sameContent && (!$replaceMode || !is_file($target))) {
+            throw new RuntimeException('target_content_conflict');
+        }
+        if ($sameContent) {
             $report['already_present']++;
             $status = 'already_present';
-        } elseif ($mode === 'copy') {
+        } elseif ($copyMode) {
             $temporary = dirname($target).'/.saveb-import-'.bin2hex(random_bytes(12));
             $in = fopen($source, 'rb');
             $out = fopen($temporary, 'xb');
@@ -71,16 +76,22 @@ foreach ($manifest as $entry) {
             if (!chmod($temporary, 0660) || !chown($temporary, 'www-data') || !chgrp($temporary, 'www-data')) {
                 throw new RuntimeException('cannot_set_file_permissions');
             }
-            // 硬链接发布不会覆盖已存在的路径；同卷临时文件保证可用。
-            if (!link($temporary, $target)) {
+            // 普通导入仍拒绝覆盖；替换模式由调用者先备份新卷，再同卷原子替换。
+            if ($replaceMode && $targetExists) {
+                if (is_link($target) || !is_file($target) || !rename($temporary, $target)) {
+                    throw new RuntimeException('replace_target_failed');
+                }
+            } elseif (!link($temporary, $target)) {
                 throw new RuntimeException('target_appeared_during_copy');
             }
-            unlink($temporary);
+            if (is_file($temporary)) {
+                unlink($temporary);
+            }
             $temporary = null;
             $report['copied']++;
-            $status = 'copied';
+            $status = $targetExists ? 'replaced' : 'copied';
         } else {
-            $status = 'ready_to_copy';
+            $status = $targetExists ? 'ready_to_replace' : 'ready_to_copy';
         }
         $report['files'][] = ['path' => $relative, 'status' => $status];
     } catch (Throwable $error) {
