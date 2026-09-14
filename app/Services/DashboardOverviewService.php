@@ -43,7 +43,7 @@ class DashboardOverviewService
      * 读取首页概览详情或指定模块数据。
      *
      * @param  string  $module  要查询的统计或业务模块标识
-     * @param  array  $range  统计日期范围，包含 startDate、endDate，格式 Y-m-d；本方法读取 startDate、endDate
+     * @param  array  $range  已校验的筛选日期，包含 startDate、endDate，格式 Y-m-d；销售趋势按粒度扩展至完整自然月或自然年
      * @param  string  $granularity  趋势统计粒度，day 按日、month 按月；默认 'day'
      * @return array{range: array, timezone: string, generatedAt: string, data: array} 实际统计范围、时区、生成时间与当前模块数据
      * @see DashboardOverviewDao::exchangeRates()
@@ -56,12 +56,13 @@ class DashboardOverviewService
         array $range,
         string $granularity = 'day',
     ): array {
-        // 首页月趋势统计筛选涉及的完整自然年；其他模块仍使用原筛选日期。
-        // Controller 已先校验原始区间，跨年时可展示两个年份的完整月份。
-        if ($module === 'sales-trend' && $granularity === 'month') {
+        // 销售趋势按日补齐涉及的自然月，按月补齐涉及的自然年；其他模块仍使用原筛选日期。
+        // Controller 已先校验原始区间，补齐周期不会误触发查询长度限制。
+        if ($module === 'sales-trend') {
+            $unit = $granularity === 'month' ? 'year' : 'month';
             $range = [
-                'startDate' => CarbonImmutable::parse($range['startDate'])->startOfYear()->toDateString(),
-                'endDate' => CarbonImmutable::parse($range['endDate'])->endOfYear()->toDateString(),
+                'startDate' => CarbonImmutable::parse($range['startDate'])->startOf($unit)->toDateString(),
+                'endDate' => CarbonImmutable::parse($range['endDate'])->endOf($unit)->toDateString(),
             ];
         }
         $data = match ($module) {

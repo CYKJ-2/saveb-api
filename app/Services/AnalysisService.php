@@ -12,6 +12,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 /** 基于采购明细的 CNY 成交分析和当前语言导出。 */
 class AnalysisService
 {
+    private const TREND_START_DATE = '2026-07-01';
+
     public const COLUMNS = [
         'analysis_date' => ['发起采购日期', 'Procurement date'],
         'customer_order_date' => ['顾客下单日期', 'Customer order date'],
@@ -115,11 +117,11 @@ class AnalysisService
     }
 
     /**
-     * 趋势独立扩展至完整自然月／年，避免月度筛选截断全年趋势。
+     * 趋势按自然月／年展开，仅统计 2026 年 7 月起的成交金额。
      *
      * @param array $filters 已查询日期及 grain；仅趋势扩展日期，品牌等筛选原样保留
      * @param array $summary 有效成交日期边界
-     * @return array grain、startDate、endDate、完整 periods 及 points；概览仍使用原始日期
+     * @return array grain、startDate、endDate、periods 及 points；范围早于起算日时保留原日期边界并返回空序列，概览仍使用原始日期
      */
     private function trend(array $filters, array $summary): array
     {
@@ -132,6 +134,17 @@ class AnalysisService
         if ($start->diffInDays($end) > 20000) {
             throw ValidationException::withMessages(['startDate' => '日期范围不能超过 20,000 天。']);
         }
+        $earliestDate = CarbonImmutable::parse(self::TREND_START_DATE);
+        if ($end->lessThan($earliestDate)) {
+            return [
+                'grain' => $grain,
+                'startDate' => $start->toDateString(),
+                'endDate' => $end->toDateString(),
+                'periods' => [],
+                'points' => [],
+            ];
+        }
+        $start = $start->max($earliestDate);
         $trendFilters = array_replace($filters, ['startDate' => $start->toDateString(), 'endDate' => $end->toDateString()]);
         $periods = [];
         for ($cursor = $start; $cursor <= $end; $cursor = $grain === 'day' ? $cursor->addDay() : $cursor->addMonth()) {

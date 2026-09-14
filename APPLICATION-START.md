@@ -96,10 +96,16 @@ curl -f http://127.0.0.1:18085/ready
 ```bash
 docker compose -f docker-compose.server.yml --profile tools run --rm --no-deps --pull never \
   migrate python scripts/preflight.py &&
-docker compose -f docker-compose.server.yml up -d --no-build --pull never --wait
+docker compose -f docker-compose.server.yml up -d --no-build --pull never --wait api worker history maintenance logistics
 ```
 
-这会启动 api、worker、history、maintenance、logistics、beat。beat 是定时调度进程，启动后将按数据库配置自动投递任务；同一生产环境只运行一个 beat。自动采集间隔在 Admin 的系统管理 → 采集管理设置，手动采集可从首页或采集管理页面触发。
+首次先启动接口和任务执行器，从 Admin 首页点击“采集当天数据”，确认采集成功后，在同一个终端开启定时调度：
+
+```bash
+docker compose -f docker-compose.server.yml up -d --no-build --pull never beat
+```
+
+beat 是定时调度进程，启动后将按数据库配置自动投递任务；同一生产环境只运行一个 beat。自动采集间隔在 Admin 的系统管理 → 采集管理设置，手动采集可从首页或采集管理页面触发。上述分步启动适用于尚未运行 beat 的首次安装，不会停止已运行的 beat。
 
 Collector 服务状态和日志：
 

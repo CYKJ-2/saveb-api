@@ -94,7 +94,7 @@ function contract(string $controller, string $method, string $verb, array $defau
         $result['notes'][] = '未传日期为全部已导入历史。品牌代号与供应商联合匹配品类；品牌待确认统一待分类。首复购按规范化客户名和完整有效采购历史判断：最早采购日所有行是首购，后续日期是复购；缺名或日期为未知。筛选不改变首次日期。';
         if ($method === 'report') {
             $result['notes'][] = '交叉单元格 share = amount / 当前筛选总成交金额 × 100。行列合计复用相同快照下 distributions 对应维度的 amount、rows、share，总合计使用 summary.amount 与 eligible_rows。品类×价格区间使用 category/price_band；首复购×品牌使用 customer_type/brand。保留待分类和未知组，总额为零时占比为零，负金额保留符号，四舍五入后的占比相加可能不等于 100%。';
-            $result['notes'][] = '页面默认传入北京时间当月起止日期。概览、排行及交叉按原日期查询；只有趋势日期会扩展：grain=month 到对应完整自然年，grain=day 到对应完整自然月。品牌、品类等条件保留。trend.startDate/endDate 返回实际趋势范围；无数据月份仍保留坐标。';
+            $result['notes'][] = '页面默认传入北京时间当月起止日期。概览、排行及交叉按原日期查询；趋势按 grain=month 扩展至对应自然年、grain=day 扩展至对应自然月，再截取 2026-07-01 起的日期。品牌、品类等条件保留。trend.startDate/endDate 返回实际趋势范围；范围完全早于起算日时保留原日期边界，periods/points 为空。起算日后的无数据月份仍保留坐标。';
         }
         if ($method === 'import') {
             $result['notes'][] = 'multipart/form-data：file 为 XLSX，最大 256 MiB；source_type=procurement/suppliers。默认 mode=current_month，仅替换北京时间当前月份 Sheet 的完整快照，其他月份不变；缺少月份、空表或解析失败保留旧数据。mode=initialize 仅首次导入全部历史。相同文件和目标月份重复导入不累计。供应商上传更新映射并重新分类有效历史，原始值和成交金额不变。';
@@ -161,7 +161,7 @@ function contract(string $controller, string $method, string $verb, array $defau
     if ($controller === 'DashboardOverview') {
         $result['notes'][] = '默认查询北京时间当天；只传一端日期时另一端取相同日期。原始筛选范围最多 366 个自然日。';
         if ($defaults['module'] === 'sales-trend') {
-            $result['notes'][] = 'granularity=month 时，统计范围扩展到筛选涉及的完整自然年；day 使用接口传入日期范围，前端显示整月需传入月初和月末。返回 range 为实际统计范围。';
+            $result['notes'][] = 'granularity=day 时，统计范围扩展到筛选涉及的完整自然月；month 时扩展到涉及的完整自然年。默认按日展示北京时间当月全部日期，无数据日期补零。只传某一天仍统计其整月，跨月筛选补齐首月月初至末月月末。返回 range 为实际统计范围，其他首页模块仍使用原始筛选日期。';
         }
         if (in_array($defaults['module'], ['currencies', 'paypal', 'exchange-rates', 'system-status', 'spreadsheets'], true)) {
             $result['notes'][] = '当前首页已移除此展示模块，但后端路由仍存在，本说明保留其实际接口。';

@@ -316,9 +316,9 @@ class AnalysisTest extends TestCase
         $this->assertSame('100.00', $monthly['summary']['amount']);
         $this->assertSame(1, $monthly['summary']['eligible_rows']);
         $this->assertSame('100.00', $monthly['distributions']['purchase_method'][0]['amount']);
-        $this->assertCount(12, $monthly['trend']['periods']);
-        $this->assertSame('2026-01', $monthly['trend']['periods'][0]);
-        $this->assertSame('2026-12', $monthly['trend']['periods'][11]);
+        $this->assertCount(6, $monthly['trend']['periods']);
+        $this->assertSame('2026-07', $monthly['trend']['periods'][0]);
+        $this->assertSame('2026-12', $monthly['trend']['periods'][5]);
         $this->assertSame(['2026-08', '2026-09'], array_column($monthly['trend']['points'], 'period'));
         $this->assertSame(['200.00', '100.00'], array_column($monthly['trend']['points'], 'amount'));
 
@@ -334,7 +334,7 @@ class AnalysisTest extends TestCase
         $this->assertCount(30, $partial['trend']['periods']);
         $this->assertSame('100.00', $partial['trend']['points'][0]['amount']);
 
-        foreach ([['2024-02-10', 'day', 29, '2024-02-01', '2024-02-29'],
+        foreach ([['2028-02-10', 'day', 29, '2028-02-01', '2028-02-29'],
             ['2026-10-10', 'day', 31, '2026-10-01', '2026-10-31'],
             ['2027-01-01', 'month', 12, '2027-01', '2027-12']] as [$date, $grain, $count, $first, $last]) {
             $empty = $this->getJson('/api/workbench/analysis/report?' . http_build_query(['startDate' => $date, 'endDate' => $date, 'grain' => $grain]))->assertOk()->json('data');
@@ -344,6 +344,45 @@ class AnalysisTest extends TestCase
             $this->assertSame($last, $empty['trend']['periods'][$count - 1]);
             $this->assertSame([], $empty['trend']['points']);
         }
+    }
+
+    public function test_trend_starts_in_july_2026_without_removing_earlier_procurement_history(): void
+    {
+        $this->import($this->xlsx([
+            '2025.12' => $this->purchaseRows([['B' => '2025-12-31', 'H' => '50']]),
+            '2026.06' => $this->purchaseRows([['B' => '2026-06-30', 'H' => '300']]),
+            '2026.07' => $this->purchaseRows([
+                ['B' => '2026-07-01', 'H' => '100'],
+                ['B' => '2026-07-31', 'H' => '200'],
+            ]),
+        ]), 'procurement', 'initialize');
+
+        $monthly = $this->getJson('/api/workbench/analysis/report?grain=month')->assertOk()->json('data');
+        $this->assertSame('650.00', $monthly['summary']['amount']);
+        $this->assertSame('2026-07-01', $monthly['trend']['startDate']);
+        $this->assertSame('2026-12-31', $monthly['trend']['endDate']);
+        $this->assertSame(['2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12'], $monthly['trend']['periods']);
+        $this->assertSame(['2026-07'], array_column($monthly['trend']['points'], 'period'));
+        $this->assertSame('300.00', $monthly['trend']['points'][0]['amount']);
+
+        $daily = $this->getJson('/api/workbench/analysis/report?startDate=2026-06-20&endDate=2026-07-10&grain=day')->assertOk()->json('data');
+        $this->assertSame('400.00', $daily['summary']['amount']);
+        $this->assertSame('2026-07-01', $daily['trend']['startDate']);
+        $this->assertSame('2026-07-31', $daily['trend']['endDate']);
+        $this->assertCount(31, $daily['trend']['periods']);
+        $this->assertSame(['2026-07-01', '2026-07-31'], array_column($daily['trend']['points'], 'period'));
+        $this->assertSame(['100.00', '200.00'], array_column($daily['trend']['points'], 'amount'));
+
+        foreach ([['2026-06-30', 'day', '300.00'], ['2025-12-31', 'month', '50.00']] as [$date, $grain, $amount]) {
+            $earlier = $this->getJson('/api/workbench/analysis/report?' . http_build_query([
+                'startDate' => $date, 'endDate' => $date, 'grain' => $grain,
+            ]))->assertOk()->json('data');
+            $this->assertSame($amount, $earlier['summary']['amount']);
+            $this->assertSame([], $earlier['trend']['periods']);
+            $this->assertSame([], $earlier['trend']['points']);
+            $this->assertLessThanOrEqual($earlier['trend']['endDate'], $earlier['trend']['startDate']);
+        }
+        $this->assertSame(4, AnalysisProcurementRow::where('is_current', true)->count());
     }
 
     public function test_pagination_quality_bilingual_export_and_history_endpoint(): void

@@ -123,9 +123,83 @@ class DashboardOverviewTest extends TestCase
     public function test_trends_fill_missing_days_and_shared_staff_amounts_match_source(): void
     {
         $this->order(['raw' => ['staffAllocations' => [['staffCode' => 'AA','percent' => 25],['staffCode' => 'BB','percent' => 75]]]]);
-        $this->getJson('/api/dashboard/sales-trend?startDate=2026-09-05&endDate=2026-09-07')->assertOk()->assertJsonCount(3, 'data.data.list')->assertJsonPath('data.data.list.0.orders', 0)->assertJsonPath('data.data.list.1.amountUsd', 100);
+        $this->getJson('/api/dashboard/sales-trend?startDate=2026-09-05&endDate=2026-09-07')->assertOk()->assertJsonCount(30, 'data.data.list')->assertJsonPath('data.data.list.0.orders', 0)->assertJsonPath('data.data.list.5.amountUsd', 100);
         $this->getJson('/api/dashboard/sales-trend?startDate=2026-08-01&endDate=2026-09-07&granularity=month')->assertOk()->assertJsonCount(12, 'data.data.list');
         $this->getJson('/api/dashboard/staff')->assertOk()->assertJsonPath('data.data.list.0.key', 'BB')->assertJsonPath('data.data.list.0.orders', 0.75)->assertJsonPath('data.data.list.0.amountUsd', 75);
+    }
+
+    public function test_daily_trend_uses_full_month_amounts_for_today_yesterday_and_another_month(): void
+    {
+        $this->travelTo(new \DateTimeImmutable('2026-09-14T02:00:00Z'));
+        foreach ([
+            ['2026-07-31T15:59:59Z', 999],
+            ['2026-07-31T16:00:00Z', 10],
+            ['2026-08-30T02:00:00Z', 20],
+            ['2026-08-31T15:59:59Z', 30],
+            ['2026-08-31T16:00:00Z', 40],
+            ['2026-09-13T02:00:00Z', 50],
+            ['2026-09-30T15:59:59Z', 60],
+            ['2026-09-30T16:00:00Z', 999],
+        ] as [$date, $amount]) {
+            $this->order(['order_time' => $date, 'amount_usd' => $amount]);
+        }
+
+        foreach (['', '?startDate=2026-09-13&endDate=2026-09-13&granularity=day'] as $query) {
+            $this->getJson('/api/dashboard/sales-trend' . $query)
+                ->assertOk()
+                ->assertJsonPath('data.range.startDate', '2026-09-01')
+                ->assertJsonPath('data.range.endDate', '2026-09-30')
+                ->assertJsonCount(30, 'data.data.list')
+                ->assertJsonPath('data.data.list.0.key', '2026-09-01')
+                ->assertJsonPath('data.data.list.0.amountUsd', 40)
+                ->assertJsonPath('data.data.list.1.amountUsd', 0)
+                ->assertJsonPath('data.data.list.12.amountUsd', 50)
+                ->assertJsonPath('data.data.list.29.key', '2026-09-30')
+                ->assertJsonPath('data.data.list.29.amountUsd', 60)
+                ->assertJsonPath('data.data.totals.amountUsd', 150);
+        }
+
+        $this->getJson('/api/dashboard/sales-trend?startDate=2026-08-30&endDate=2026-08-30&granularity=day')
+            ->assertOk()
+            ->assertJsonPath('data.range.startDate', '2026-08-01')
+            ->assertJsonPath('data.range.endDate', '2026-08-31')
+            ->assertJsonCount(31, 'data.data.list')
+            ->assertJsonPath('data.data.list.0.amountUsd', 10)
+            ->assertJsonPath('data.data.list.29.amountUsd', 20)
+            ->assertJsonPath('data.data.list.30.key', '2026-08-31')
+            ->assertJsonPath('data.data.list.30.amountUsd', 30)
+            ->assertJsonPath('data.data.totals.amountUsd', 60);
+
+        $query = '?startDate=2026-09-13&endDate=2026-09-13&granularity=day';
+        foreach (['overview', 'categories', 'staff', 'influencers', 'recent-orders'] as $module) {
+            $this->getJson('/api/dashboard/' . $module . $query)
+                ->assertOk()
+                ->assertJsonPath('data.range.startDate', '2026-09-13')
+                ->assertJsonPath('data.range.endDate', '2026-09-13');
+        }
+        $this->getJson('/api/dashboard/overview' . $query)->assertJsonPath('data.data.current.amountUsd', 50);
+    }
+
+    public function test_daily_trend_fills_leap_months_and_cross_month_ranges(): void
+    {
+        foreach ([
+            ['2024-02-10', '2024-02-10', '2024-02-01', '2024-02-29', 29],
+            ['2026-08-30', '2026-09-13', '2026-08-01', '2026-09-30', 61],
+            ['2025-12-24', '2026-12-23', '2025-12-01', '2026-12-31', 396],
+        ] as [$start, $end, $firstDay, $lastDay, $days]) {
+            $this->getJson('/api/dashboard/sales-trend?' . http_build_query([
+                'startDate' => $start,
+                'endDate' => $end,
+                'granularity' => 'day',
+            ]))
+                ->assertOk()
+                ->assertJsonPath('data.range.startDate', $firstDay)
+                ->assertJsonPath('data.range.endDate', $lastDay)
+                ->assertJsonCount($days, 'data.data.list')
+                ->assertJsonPath('data.data.list.0.key', $firstDay)
+                ->assertJsonPath('data.data.list.' . ($days - 1) . '.key', $lastDay)
+                ->assertJsonPath('data.data.totals.amountUsd', 0);
+        }
     }
 
     public function test_monthly_trend_uses_full_year_amounts_while_other_modules_keep_selected_dates(): void
@@ -158,7 +232,7 @@ class DashboardOverviewTest extends TestCase
         }
         $this->getJson('/api/dashboard/overview' . $query)->assertJsonPath('data.data.current.amountUsd', 20);
         $this->getJson('/api/dashboard/sales-trend?startDate=2026-05-10&endDate=2026-05-10&granularity=day')
-            ->assertOk()->assertJsonCount(1, 'data.data.list')->assertJsonPath('data.data.totals.amountUsd', 20);
+            ->assertOk()->assertJsonCount(31, 'data.data.list')->assertJsonPath('data.data.totals.amountUsd', 20);
     }
 
     public function test_monthly_cross_year_filter_covers_all_months_of_both_years(): void
